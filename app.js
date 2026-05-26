@@ -165,7 +165,8 @@ const STATE = {
   userPoints: 250,
   activeLanguage: "en", // en, hi, ta
   cameraActive: false,
-  scannerInstance: null, // Unified reference placeholder for Cross-Platform Html5Qrcode interface
+  cameraLoopId: null,
+  videoStream: null,
 
   // Synchronized getter ensures UI updates Me (Self) perfectly
   get userProfile() {
@@ -358,6 +359,7 @@ function analyzeIngredientsText(ingredientsStr) {
     }
   });
 
+  // Inject general chemical alerts if matches aren't explicitly captured by INS codes
   if (flags.palmOil && !uniqueMatches.some(m => m.includes("palm"))) {
     detectedAdditives.push({
       name: "Palm Oil / Palmolein Oil",
@@ -406,6 +408,7 @@ function evaluateCompatibility(productName, ingredientsStr, nutrition, profile) 
     reasons: []
   };
 
+  // Base Diets Checks
   if (profile.diet === "vegetarian") {
     if (flags.containsMeat) {
       status.compatible = false;
@@ -451,6 +454,7 @@ function evaluateCompatibility(productName, ingredientsStr, nutrition, profile) 
     }
   }
 
+  // Allergies Checks
   if (profile.allergies.dairy && flags.hasDairy) {
     status.compatible = false;
     status.dietClass = "fail";
@@ -472,6 +476,7 @@ function evaluateCompatibility(productName, ingredientsStr, nutrition, profile) 
     status.reasons.push("Soy Allergen: Contains Soy lecithin.");
   }
 
+  // Clinical Goals Checks
   if (nutrition) {
     if (profile.clinical.diabetic) {
       if (nutrition.sugar > 5 || flags.sweeteners || flags.addedSugar) {
@@ -506,12 +511,14 @@ function parseNaturalLanguageHealth(text) {
     customFilters: []
   };
 
+  // 1. Base Diets
   if (lower.includes("jain")) parsed.diet = "jain";
   else if (lower.includes("vegan")) parsed.diet = "vegan";
   else if (lower.includes("vegetarian") || lower.includes("pure veg")) parsed.diet = "vegetarian";
   else if (lower.includes("eggetarian") || lower.includes("egg eating")) parsed.diet = "eggetarian";
   else if (lower.includes("halal")) parsed.diet = "halal";
 
+  // 2. Allergies
   if (lower.includes("lactose") || lower.includes("dairy allergy") || lower.includes("milk allergy")) {
     parsed.allergies.dairy = true;
   }
@@ -525,6 +532,7 @@ function parseNaturalLanguageHealth(text) {
     parsed.allergies.soy = true;
   }
 
+  // 3. Clinical Conditions
   if (lower.includes("diabet") || lower.includes("sugar issue") || lower.includes("blood sugar")) {
     parsed.clinical.diabetic = true;
   }
@@ -535,6 +543,7 @@ function parseNaturalLanguageHealth(text) {
     parsed.clinical.keto = true;
   }
 
+  // 4. Custom Conditions & Natural Language Warnings
   if (lower.includes("thyroid")) {
     parsed.customFilters.push({
       id: "thyroid",
@@ -551,7 +560,7 @@ function parseNaturalLanguageHealth(text) {
       warning: "Added sugars, processed sweeteners, or palm fats detected. PCOS guidelines advise keeping glycemic index low and avoiding trans/saturated fats to manage insulin resistance."
     });
   }
-  if (lower.includes("hip transplant") || lower.includes("bone surgery") || (lower.includes("deficiency") && lower.includes("d")) || lower.includes("osteoporosis")) {
+  if (lower.includes("hip transplant") || lower.includes("bone surgery") || lower.includes("deficiency") && lower.includes("d") || lower.includes("osteoporosis")) {
     parsed.customFilters.push({
       id: "bone",
       conditionName: "Bone Strength & recovery",
@@ -604,8 +613,11 @@ class BarcodePipeline {
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          this.canvas.width = Math.min(img.width, 640);
-          this.canvas.height = Math.round(img.height * (this.canvas.width / img.width));
+          // Dynamic aspect ratio calculation to prevent vertical/horizontal distortion!
+          const aspect = img.width / img.height;
+          this.canvas.width = 420;
+          this.canvas.height = Math.round(420 / aspect);
+          
           this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
           this.originalImageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
           resolve();
@@ -624,12 +636,12 @@ class BarcodePipeline {
     imgData.data.set(this.originalImageData.data);
     const d = imgData.data;
     const len = d.length;
+
+    // Fast grayscale and threshold binarization transform silently in the background
     for (let i = 0; i < len; i += 4) {
       const gray = Math.round(0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2]);
-      const binary = gray > 120 ? 255 : 0;
-      d[i] = binary;
-      d[i+1] = binary;
-      d[i+2] = binary;
+      const binary = gray > 120 ? 255 : 0; // standard binarize threshold
+      d[i] = binary; d[i+1] = binary; d[i+2] = binary;
     }
     this.ctx.putImageData(imgData, 0, 0);
   }
@@ -639,6 +651,7 @@ class BarcodePipeline {
 function showToast(message, type = "success") {
   const container = document.getElementById("toast-container");
   if (!container) return;
+
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
   let emoji = "ℹ️";
@@ -646,119 +659,83 @@ function showToast(message, type = "success") {
   if (type === "warning") emoji = "⚠️";
   if (type === "danger") emoji = "❌";
   if (type === "info") emoji = "✨";
+
   toast.innerHTML = `<span>${emoji}</span><div>${message}</div>`;
   container.appendChild(toast);
+  
   setTimeout(() => {
-    toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 400);
-  }, 3500);
+    toast.style.animation = "slideInDown 0.35s ease reverse forwards";
+    setTimeout(() => toast.remove(), 350);
+  }, 4000);
 }
 
-function triggerRewardConfetti(pointsEarned) {
-  showToast(`+${pointsEarned} Sattva Points Added!`, "success");
+function triggerRewardConfetti(pointsGained) {
+  showToast(`🎉 Verified! You earned +${pointsGained} Pioneer points!`, "success");
+  const duration = 1500;
+  const animationEnd = Date.now() + duration;
+  const interval = setInterval(() => {
+    if (Date.now() > animationEnd) return clearInterval(interval);
+    const confetti = document.createElement("div");
+    confetti.style.position = "fixed";
+    confetti.style.zIndex = "9999";
+    confetti.style.width = "6px";
+    confetti.style.height = "6px";
+    confetti.style.borderRadius = "50%";
+    confetti.style.backgroundColor = ["#2D5B31", "#3E7D46", "#D98A04", "#287796"][Math.floor(Math.random() * 4)];
+    confetti.style.left = `${Math.random() * 100}vw`;
+    confetti.style.top = `-10px`;
+    confetti.style.opacity = "0.9";
+    document.body.appendChild(confetti);
+    
+    const fallAnim = confetti.animate([
+      { top: "-10px", transform: `translate(0, 0) rotate(0deg)` },
+      { top: "105vh", transform: `translate(${(Math.random() - 0.5) * 150}px, 0) rotate(${Math.random() * 360}deg)` }
+    ], { duration: 1000 + Math.random() * 1000, easing: "ease-out" });
+    
+    fallAnim.onfinish = () => confetti.remove();
+  }, 30);
 }
 
-// --- 8. LIVE HARDWARE INTERFACE CONTROLLERS (Unified For iOS Safari & Android Chrome) ---
-function initializeCameraScanner() {
-  const scannerStatus = document.getElementById("camera-status-msg");
-  const readerContainer = document.getElementById("camera-reader-element");
-  
-  if (!readerContainer) return;
-  
-  // Wipe container layout clean to ensure clean tracking configurations
-  readerContainer.innerHTML = "";
-  STATE.cameraActive = true;
-  
-  if (scannerStatus) scannerStatus.textContent = "Requesting secure camera access...";
-
-  // Standardize scanning dimensions for 1D Indian Product Codes (EAN-13)
-  const formatsToSupport = [ Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8 ];
-
-  // Instantiating html5-qrcode framework wrapper over existing reader div
-  STATE.scannerInstance = new Html5Qrcode("camera-reader-element");
-
-  const qrCodeSuccessCallback = (decodedText, decodedResult) => {
-    // Intercept loops instantly to release hardware lines cleanly on success
-    if (STATE.scannerInstance && STATE.scannerInstance.isScanning) {
-      STATE.scannerInstance.stop().then(() => {
-        STATE.cameraActive = false;
-        if (scannerStatus) scannerStatus.textContent = "Code scanned! Processing details...";
-        showToast("Barcode parsed smoothly!", "success");
-        setupPipelineSuccess(decodedText);
-      }).catch(err => {
-        console.error("Camera hardware tracks release friction:", err);
-        setupPipelineSuccess(decodedText);
-      });
-    }
-  };
-
-  const config = {
-    fps: 15,
-    qrbox: (width, height) => {
-      // Precise rectangular aspect matrix that fits narrow barcodes perfectly without distortion
-      return { width: Math.min(width * 0.85, 290), height: 145 };
-    }
-  };
-
-  // Boots camera natively with critical flags playsinline and muted auto-injected for WebKit engine compatibility
-  STATE.scannerInstance.start(
-    { facingMode: "environment" },
-    config,
-    qrCodeSuccessCallback,
-    (errorMessage) => { /* Background dynamic scanning log tracking placeholder */ }
-  ).then(() => {
-    if (scannerStatus) scannerStatus.textContent = "Scanner active. Place barcode inside boundaries.";
-  }).catch(err => {
-    console.error("Camera link failure exception:", err);
-    if (scannerStatus) {
-      scannerStatus.textContent = "Camera rejected. Secure protocol layers (HTTPS) are required on Safari.";
-    }
-  });
-
-  // Attach compatibility snapshot pointer fallback link helper button
-  const snapBtn = document.getElementById("camera-snapshot-btn");
-  if (snapBtn) {
-    snapBtn.onclick = () => {
-      showToast("Adjusting optical focus alignment... hold still", "info");
-    };
-  }
-}
-
-function stopCameraScanner() {
-  STATE.cameraActive = false;
-  if (STATE.scannerInstance && STATE.scannerInstance.isScanning) {
-    STATE.scannerInstance.stop().then(() => {
-      console.log("Hardware camera streams released cleanly.");
-    }).catch(err => console.error("Active context cleanup trace error:", err));
-  }
-}
-
-// --- 9. HIGH-RELEVANCE SEARCH INDICES MATCHING ---
+// --- 8. RELEVANCE SORTING AND COMBINED SEARCH INDEX ---
 function calculateRelevanceScore(product, query) {
-  const lowercaseQuery = query.toLowerCase().trim();
   const lowercaseName = product.name.toLowerCase();
   const lowercaseBrand = product.brand.toLowerCase();
+  const lowercaseQuery = query.trim().toLowerCase();
 
-  if (product.barcode === lowercaseQuery) {
+  // If query exactly matches numeric barcode EAN
+  if (product.barcode === query.trim()) {
+    return 300;
+  }
+
+  // Exact phrase match
+  if (lowercaseName === lowercaseQuery || lowercaseBrand === lowercaseQuery) {
     return 200;
   }
+
+  // Phrase hit
   if (lowercaseName.includes(lowercaseQuery) || lowercaseBrand.includes(lowercaseQuery)) {
     return 150;
   }
+
+  // Split query keywords
   const keywords = lowercaseQuery.split(/\s+/).filter(w => w.length > 1);
   let score = 0;
   let matchesAll = true;
+
   keywords.forEach(word => {
     const inName = lowercaseName.includes(word);
     const inBrand = lowercaseBrand.includes(word);
     if (inName || inBrand) {
       score += 30;
-      if (inName) score += 20; 
+      if (inName) score += 20; // prioritize name hits
     } else {
       matchesAll = false;
     }
   });
-  if (matchesAll) score += 50; 
+
+  if (matchesAll) score += 50;
+
+  // BM25 phrase boosting
   if (keywords.length > 1) {
     const regexStr = keywords.join("\\s+");
     const regex = new RegExp(regexStr, "i");
@@ -766,6 +743,7 @@ function calculateRelevanceScore(product, query) {
       score += 100;
     }
   }
+
   return score;
 }
 
@@ -773,52 +751,85 @@ function executeProductSearch(query) {
   const resultsContainer = document.getElementById("search-results-list");
   if (!resultsContainer) return;
   resultsContainer.innerHTML = "";
+
   if (!query.trim()) return;
 
   const results = [];
+
+  // 1. Check Local DB
   Object.values(LOCAL_PRODUCTS_DB).forEach(prod => {
     const score = calculateRelevanceScore(prod, query);
-    if (score > 35) {
+    if (score > 35) { // relevance threshold
       results.push({ prod, score });
     }
   });
 
+  // Sort local matches by relevance score descending
   results.sort((a, b) => b.score - a.score);
 
+  // 2. Query Live Web Database fallback & display combined search results
   if (results.length > 0) {
     results.forEach(item => {
       const prod = item.prod;
       const card = document.createElement("div");
       card.className = "search-result-card";
+      
       const evalRes = evaluateCompatibility(prod.name, prod.ingredients, prod.nutrition, STATE.userProfile);
-      const passLabel = evalRes.status.dietClass === "fail" ? "⚠️ Warning" : "🟢 Match";
+      const passLabel = evalRes.status.dietClass === "fail" ? "⚠️ Warning" : "🟢 Compatible";
+      const passClass = evalRes.status.dietClass === "fail" ? "recent-item-status fail" : "recent-item-status pass";
+
       card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-          <div>
-            <span class="diet-badge ${evalRes.status.dietClass}">${passLabel}</span>
-            <h4 style="margin:4px 0 2px 0; font-size:13px; color:var(--text-primary); font-family:var(--font-sans);">${prod.name}</h4>
-            <span style="font-size:10px; color:var(--text-secondary); font-weight:500;">${prod.brand}</span>
-          </div>
-          <button class="btn btn-primary search-view-details-btn" style="padding:4px 10px; font-size:10px; font-weight:700; border-radius:8px;">View</button>
+        <div class="result-info">
+          <h4>${prod.name}</h4>
+          <span>${prod.brand} • ${prod.barcode}</span>
         </div>
+        <span class="${passClass}">${passLabel}</span>
       `;
-      card.querySelector(".search-view-details-btn").onclick = () => {
-        openProductDetailsModal(prod);
-      };
+      card.onclick = () => openProductDetailsModal(prod);
       resultsContainer.appendChild(card);
     });
+
+    // Also offer background search in OpenFoodFacts to add other items
+    const divider = document.createElement("div");
+    divider.style.borderTop = "1px dashed var(--border-color)";
+    divider.style.margin = "10px 0";
+    resultsContainer.appendChild(divider);
+
+    const checkGlobalBtn = document.createElement("button");
+    checkGlobalBtn.className = "btn btn-secondary btn-sm btn-block";
+    checkGlobalBtn.textContent = `🔍 Search Global Registry for "${query}"`;
+    checkGlobalBtn.onclick = () => fetchOpenFoodFactsSearch(query);
+    resultsContainer.appendChild(checkGlobalBtn);
   } else {
-    fetchWebProductFallback(query);
+    // Digits query EAN lookup or text query search
+    fetchOpenFoodFactsSearch(query);
   }
 }
 
-async function fetchWebProductFallback(query) {
+async function fetchOpenFoodFactsSearch(query) {
   const resultsContainer = document.getElementById("search-results-list");
   if (!resultsContainer) return;
+  
+  resultsContainer.innerHTML = `
+    <div class="ocr-status-loader" style="display:flex; justify-content:center; align-items:center; gap:8px;">
+      <div class="spinner"></div>
+      <span style="font-family:var(--font-sans); font-size:11px;">Searching global registry for "${query}"...</span>
+    </div>
+  `;
+
   try {
+    const isDigits = /^\d+$/.test(query.trim());
+    if (isDigits) {
+      resultsContainer.innerHTML = "";
+      await fetchOpenFoodFactsProduct(query.trim());
+      return;
+    }
+
     const response = await fetch(`https://in.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1`);
     const data = await response.json();
+    
     resultsContainer.innerHTML = "";
+
     if (data.products && data.products.length > 0) {
       const candidates = [];
       data.products.forEach(p => {
@@ -829,16 +840,21 @@ async function fetchWebProductFallback(query) {
           candidates.push({ p, score });
         }
       });
+
+      // Sort by relevance score descending
       candidates.sort((a, b) => b.score - a.score);
       const finalProducts = candidates.map(c => c.p).slice(0, 5);
+
       if (finalProducts.length === 0) {
         renderGoogleFallbackLinkCard(query);
         return;
       }
+
       finalProducts.forEach(p => {
         const barcode = p.code;
         const card = document.createElement("div");
         card.className = "search-result-card";
+        
         const ingredientsText = p.ingredients_text || "Ingredients not listed. Parse label.";
         const rawNutrients = p.nutriments || {};
         const servingGrams = p.serving_quantity || 100;
@@ -849,60 +865,75 @@ async function fetchWebProductFallback(query) {
         const proteinPer100 = rawNutrients["proteins_100g"] || 0;
         const fatPer100 = rawNutrients["fat_100g"] || 0;
         const factor = servingGrams / 100;
+
         const nutrition = {
           serving_size: servingGrams,
-          calories: Math.round(caloriesPer100 * factor) || 115,
-          sugar: parseFloat((sugarPer100 * factor).toFixed(1)) || 1.8,
-          sodium: Math.round(sodiumPer100 * 1000 * factor) || 85,
-          carbs: parseFloat((carbsPer100 * factor).toFixed(1)) || 14.5,
-          protein: parseFloat((proteinPer100 * factor).toFixed(1)) || 1.5,
-          fat: parseFloat((fatPer100 * factor).toFixed(1)) || 3.2
+          calories: Math.round(caloriesPer100 * factor) || 120,
+          sugar: parseFloat((sugarPer100 * factor).toFixed(1)) || 2.0,
+          sodium: Math.round(sodiumPer100 * 1000 * factor) || 90,
+          carbs: parseFloat((carbsPer100 * factor).toFixed(1)) || 18.0,
+          protein: parseFloat((proteinPer100 * factor).toFixed(1)) || 2.0,
+          fat: parseFloat((fatPer100 * factor).toFixed(1)) || 4.0
         };
-        const mappedProduct = {
-          barcode: barcode,
-          name: p.product_name,
-          brand: p.brands,
-          ingredients: ingredientsText,
-          nutrition: nutrition,
-          nutri_score: p.nutriscore_grade || "c",
-          alternatives: getGenericAlternatives(p.product_name)
-        };
-        const evalRes = evaluateCompatibility(mappedProduct.name, mappedProduct.ingredients, mappedProduct.nutrition, STATE.userProfile);
-        const passLabel = evalRes.status.dietClass === "fail" ? "⚠️ Warning" : "✨ Web Match";
+
+        const evalRes = evaluateCompatibility(p.product_name, ingredientsText, nutrition, STATE.userProfile);
+        const passLabel = evalRes.status.dietClass === "fail" ? "⚠️ Warning" : "🟢 Compatible";
+        const passClass = evalRes.status.dietClass === "fail" ? "recent-item-status fail" : "recent-item-status pass";
+
         card.innerHTML = `
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
-              <span class="diet-badge ${evalRes.status.dietClass}">${passLabel}</span>
-              <h4 style="margin:4px 0 2px 0; font-size:13px; color:var(--text-primary); font-family:var(--font-sans);">${mappedProduct.name}</h4>
-              <span style="font-size:10px; color:var(--text-secondary); font-weight:500;">${mappedProduct.brand}</span>
-            </div>
-            <button class="btn btn-primary web-view-details-btn" style="padding:4px 10px; font-size:10px; font-weight:700; border-radius:8px;">View</button>
+          <div class="result-info">
+            <h4>${p.product_name}</h4>
+            <span>${p.brands} • ${barcode}</span>
           </div>
+          <span class="${passClass}">${passLabel}</span>
         `;
-        card.querySelector(".web-view-details-btn").onclick = () => {
+        
+        card.onclick = () => {
+          const mappedProduct = {
+            barcode: barcode,
+            name: p.product_name,
+            brand: p.brands,
+            fssai: p.fssai_lic_no || "",
+            ingredients: ingredientsText,
+            nutrition: nutrition,
+            nutri_score: p.nutriscore_grade || "c",
+            alternatives: getGenericAlternatives(p.product_name)
+          };
+          LOCAL_PRODUCTS_DB[barcode] = mappedProduct;
           openProductDetailsModal(mappedProduct);
         };
+        
         resultsContainer.appendChild(card);
       });
     } else {
       renderGoogleFallbackLinkCard(query);
     }
-  } catch (err) {
+  } catch (error) {
+    console.error("Open Food Facts search error:", error);
     renderGoogleFallbackLinkCard(query);
   }
 }
 
+// --- 9. MISSING FSSAI & OPENFOODFACTS BARCODE LOOKUPER ---
 async function fetchOpenFoodFactsProduct(barcode) {
-  const container = document.getElementById("search-results-list");
-  if (LOCAL_PRODUCTS_DB[barcode]) {
-    openProductDetailsModal(LOCAL_PRODUCTS_DB[barcode]);
-    return;
+  const resultsContainer = document.getElementById("search-results-list");
+  const isSearchTabActive = document.getElementById("tab-dashboard").classList.contains("active");
+
+  if (isSearchTabActive && resultsContainer) {
+    resultsContainer.innerHTML = `
+      <div class="ocr-status-loader" style="display:flex; justify-content:center; align-items:center; gap:8px;">
+        <div class="spinner"></div>
+        <span style="font-family:var(--font-sans); font-size:11px;">Searching registry for barcode "${barcode}"...</span>
+      </div>
+    `;
   } else {
-    showToast(`Searching barcode data loops...`, "info");
+    showToast(`Searching barcode ${barcode}...`, "info");
   }
+
   try {
     const response = await fetch(`https://in.openfoodfacts.org/api/v0/product/${barcode}.json`);
     const data = await response.json();
+    
     if (data.status === 1 && data.product) {
       const p = data.product;
       const ingredientsText = p.ingredients_text || "Ingredients not listed. Parse label.";
@@ -915,6 +946,7 @@ async function fetchOpenFoodFactsProduct(barcode) {
       const proteinPer100 = rawNutrients["proteins_100g"] || 0;
       const fatPer100 = rawNutrients["fat_100g"] || 0;
       const factor = servingGrams / 100;
+
       const nutrition = {
         serving_size: servingGrams,
         calories: Math.round(caloriesPer100 * factor) || 120,
@@ -924,50 +956,109 @@ async function fetchOpenFoodFactsProduct(barcode) {
         protein: parseFloat((proteinPer100 * factor).toFixed(1)) || 2.0,
         fat: parseFloat((fatPer100 * factor).toFixed(1)) || 4.0
       };
+
       const mappedProduct = {
         barcode: barcode,
         name: p.product_name || "Unknown Product",
         brand: p.brands || "Unknown Brand",
-        fssai: p.ecoscore_data?.fssai_license || "",
+        fssai: p.fssai_lic_no || "",
         ingredients: ingredientsText,
         nutrition: nutrition,
         nutri_score: p.nutriscore_grade || "c",
         alternatives: getGenericAlternatives(p.product_name || "")
       };
+
+      // Add to local DB temporarily so we don't refetch
+      LOCAL_PRODUCTS_DB[barcode] = mappedProduct;
+      
+      if (isSearchTabActive && resultsContainer) {
+        resultsContainer.innerHTML = "";
+      }
+      
       openProductDetailsModal(mappedProduct);
     } else {
+      // Barcode not found in Open Food Facts registry! Show Crowdsourcing inline.
+      if (isSearchTabActive && resultsContainer) {
+        renderInlineCrowdsourceCard(barcode);
+      } else {
+        showToast("Product not found in registry. Populating Pioneer Card...", "warning");
+        document.querySelector('.tab-btn[data-tab="tab-dashboard"]').click();
+        renderInlineCrowdsourceCard(barcode);
+      }
+    }
+  } catch (error) {
+    console.error("Open Food Facts product fetch error:", error);
+    showToast("Network error searching database.", "danger");
+    if (isSearchTabActive && resultsContainer) {
       renderInlineCrowdsourceCard(barcode);
     }
-  } catch (err) {
-    renderInlineCrowdsourceCard(barcode);
   }
 }
 
 function renderGoogleFallbackLinkCard(query) {
   const container = document.getElementById("search-results-list");
   if (!container) return;
-  container.innerHTML = `
-    <div class="not-found-card" style="padding:14px; text-align:center; border: 1px dashed var(--border-color); border-radius:12px; background:#FFF;">
-      <h4 style="margin:0 0 6px 0; font-size:12.5px; color:var(--text-primary);">Item outside direct indices</h4>
-      <p style="font-size:10.5px; line-height:14px; margin:0 0 10px 0; color:var(--text-secondary);">We couldn't locate ingredients natively. Verify packaging details externally:</p>
-      <div style="display:flex; justify-content:center; gap:8px;">
-        <a class="btn btn-secondary btn-sm" href="https://www.google.com/search?q=${encodeURIComponent(query + ' ingredients blinkit zepto')}" target="_blank" style="font-size:10px; font-weight:700; text-decoration:none; padding:4px 10px; display:inline-block; border-color:#DDD; color:#444;">Search Ingredients</a>
+  container.innerHTML = "";
+
+  const card = document.createElement("div");
+  card.className = "not-found-card";
+  
+  card.innerHTML = `
+    <h4>Product Not Listed In Food Registry</h4>
+    <p>We couldn't resolve details for "${query}". You can search on Google or open Quick-Commerce to find it.</p>
+    
+    <div style="display:flex; flex-direction:column; gap:6px; margin-top:8px;">
+      <a class="btn btn-primary btn-sm" href="https://www.google.com/search?q=${encodeURIComponent(query + ' ingredients nutrition FSSAI')}" target="_blank" style="text-decoration:none;">
+        🔍 Search Ingredients on Google
+      </a>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;">
+        <a class="btn btn-secondary btn-sm" href="https://blinkit.com/s/?q=${encodeURIComponent(query)}" target="_blank" style="text-decoration:none; color:var(--primary); font-size:10px;">
+          ⚡ Find on Blinkit
+        </a>
+        <a class="btn btn-secondary btn-sm" href="https://www.zepto.co/search?q=${encodeURIComponent(query)}" target="_blank" style="text-decoration:none; color:var(--primary); font-size:10px;">
+          🍊 Find on Zepto
+        </a>
       </div>
+      
+      <p style="font-size: 9px; margin-top: 6px; font-family:var(--font-sans);">Once you find the ingredients text, copy and paste it into the <strong>Analyzer</strong> tab to inspect safety!</p>
     </div>
   `;
+  container.appendChild(card);
 }
 
 // --- 10. BACKGROUND OCR FILE SCANNING ENGINE ---
 function handleUploadedBarcodeFile(file) {
   const loader = document.getElementById("cv-background-loader");
   const loaderText = document.getElementById("cv-background-text");
+  
   if (loader) {
     loader.style.display = "flex";
     loaderText.textContent = "Pre-processing canvas aspect ratio silently...";
   }
+
+  // Load image into offscreen canvas transform
   const pipeline = new BarcodePipeline("pipeline-canvas");
   pipeline.loadImage(file).then(() => {
-    runOcrBinarizedFallback(pipeline, file);
+    // 1. Try browser native BarcodeDetector API first on the resized canvas!
+    if ('BarcodeDetector' in window) {
+      const canvas = document.getElementById("pipeline-canvas");
+      const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'code_128', 'code_39', 'qr_code'] });
+      detector.detect(canvas)
+        .then(barcodes => {
+          if (barcodes.length > 0) {
+            if (loader) loader.style.display = "none";
+            showToast("Barcode parsed natively!", "success");
+            setupPipelineSuccess(barcodes[0].rawValue);
+          } else {
+            runOcrBinarizedFallback(pipeline, file);
+          }
+        })
+        .catch(() => {
+          runOcrBinarizedFallback(pipeline, file);
+        });
+    } else {
+      runOcrBinarizedFallback(pipeline, file);
+    }
   }).catch(err => {
     console.error("Canvas load error:", err);
     if (loader) loader.style.display = "none";
@@ -978,50 +1069,73 @@ function handleUploadedBarcodeFile(file) {
 function runOcrBinarizedFallback(pipeline, file) {
   const loaderText = document.getElementById("cv-background-text");
   const loader = document.getElementById("cv-background-loader");
+
   if (loaderText) {
-    loaderText.textContent = "Canvas adjustments applied. Dispatching worker engines...";
+    loaderText.textContent = "Canvas processed. Running Tesseract background OCR...";
   }
+
+  // Binarize canvas to make characters crisp for Tesseract
   pipeline.binarizeCanvasSilently();
   const canvas = document.getElementById("pipeline-canvas");
-  Tesseract.recognize(canvas, 'eng', { logger: m => console.log(m) }).then(({ data: { text } }) => {
-    if (loader) loader.style.display = "none";
-    const cleanOcr = text.replace(/[\s\-\.]/g, "");
-    const barcodeMatch = cleanOcr.match(/\d{13}/);
-    if (barcodeMatch) {
-      showToast("Extracted active code series!", "success");
-      setupPipelineSuccess(barcodeMatch[0]);
-    } else {
-      const words = text.toLowerCase();
-      let matchedCode = null;
-      if (words.includes("maggi") || words.includes("noodles")) matchedCode = "8901058820875";
-      else if (words.includes("kurkure")) matchedCode = "8901491101830";
-      else if (words.includes("lay")) matchedCode = "8901491502057";
-      else if (words.includes("butter") || words.includes("amul")) matchedCode = "8901262010022";
-      else if (words.includes("tropicana") || words.includes("orange")) matchedCode = "8901491321030";
-      else if (words.includes("marie")) matchedCode = "8901063014160";
-      else if (words.includes("plain chocolate")) matchedCode = "7622201722880";
-      else if (words.includes("bubbly")) matchedCode = "7622201763135";
-      else if (words.includes("roast almond")) matchedCode = "7622201722958";
-      else if (words.includes("parle-g") || words.includes("gold")) matchedCode = "8901719101254";
-      if (matchedCode) {
-        showToast("Product matched via Tesseract OCR!", "success");
-        setupPipelineSuccess(matchedCode);
-      } else {
-        const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 3);
-        if (lines.length > 0) {
-          showToast(`Searching for cover parsed: "${lines[0]}"`, "info");
-          executeProductSearch(lines[0]);
+
+  Tesseract.recognize(canvas, 'eng')
+    .then(({ data: { text } }) => {
+      if (loader) loader.style.display = "none";
+      
+      // Clean up text spaces/dashes before matching regex
+      const cleaned = text.replace(/[\s\-\.]/g, "");
+      
+      const barcodeMatch = cleaned.match(/890\d{10}/);
+      const fssaiMatch = cleaned.match(/1\d{13}/);
+      
+      if (barcodeMatch) {
+        showToast("Barcode EAN resolved via background OCR!", "success");
+        setupPipelineSuccess(barcodeMatch[0]);
+      } else if (fssaiMatch) {
+        showToast("FSSAI license read via background OCR!", "success");
+        const fssaiCode = fssaiMatch[0];
+        const matchedByFssai = Object.values(LOCAL_PRODUCTS_DB).find(p => p.fssai === fssaiCode);
+        if (matchedByFssai) {
+          openProductDetailsModal(matchedByFssai);
         } else {
-          showToast("Could not decode barcode or text from photo.", "warning");
-          renderInlineCrowdsourceCard("890" + Math.floor(1000000000 + Math.random() * 9000000000));
+          executeProductSearch(fssaiCode);
+        }
+      } else {
+        // Try keyword matching
+        const words = text.toLowerCase();
+        let matchedCode = null;
+        
+        if (words.includes("maggi") || words.includes("masala noodles")) matchedCode = "8901058820875";
+        else if (words.includes("kurkure") || words.includes("masala munch")) matchedCode = "8901491101830";
+        else if (words.includes("lays") || words.includes("magic masala")) matchedCode = "8901491502057";
+        else if (words.includes("butter") || words.includes("amul")) matchedCode = "8901262010022";
+        else if (words.includes("tropicana") || words.includes("orange")) matchedCode = "8901491321030";
+        else if (words.includes("marie gold") || words.includes("britannia")) matchedCode = "8901063014160";
+        else if (words.includes("silk") || words.includes("bubbly")) matchedCode = "7622201763135";
+        else if (words.includes("roast almond")) matchedCode = "7622201722958";
+        else if (words.includes("parle-g") || words.includes("gold")) matchedCode = "8901719101254";
+
+        if (matchedCode) {
+          showToast("Product matched via Tesseract OCR!", "success");
+          setupPipelineSuccess(matchedCode);
+        } else {
+          // completely new cover scan fallback. search top extracted line.
+          const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 3);
+          if (lines.length > 0) {
+            showToast(`Searching for cover parsed: "${lines[0]}"`, "info");
+            executeProductSearch(lines[0]);
+          } else {
+            showToast("Could not decode barcode or text from photo.", "warning");
+            renderInlineCrowdsourceCard("890" + Math.floor(1000000000 + Math.random() * 9000000000));
+          }
         }
       }
-    }
-  }).catch(err => {
-    console.error(err);
-    if (loader) loader.style.display = "none";
-    showToast("OCR processing failed.", "danger");
-  });
+    })
+    .catch(err => {
+      console.error(err);
+      if (loader) loader.style.display = "none";
+      showToast("OCR processing failed.", "danger");
+    });
 }
 
 function setupPipelineSuccess(barcodeNumber) {
@@ -1037,52 +1151,227 @@ function initializeOcrScreenshotLoader() {
   const dropArea = document.getElementById("screenshot-drop-area");
   const fileInput = document.getElementById("screenshot-file-input");
   const browseBtn = document.getElementById("browse-screenshot-btn");
+  const ocrLoader = document.getElementById("ocr-loader");
+  const ocrStatus = document.getElementById("ocr-status-text");
+
   if (!browseBtn || !fileInput) return;
+
   browseBtn.onclick = () => fileInput.click();
   fileInput.onchange = (e) => {
     if (e.target.files.length > 0) processScreenshotOcr(e.target.files[0]);
   };
+
+  function processScreenshotOcr(file) {
+    dropArea.className = "screenshot-upload-box attached";
+    dropArea.querySelector("p").textContent = "✓ Screenshot Loaded";
+    ocrLoader.style.display = "flex";
+    ocrStatus.textContent = "Scanning layout & OCR zones (Blinkit/Zepto matching)...";
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        
+        ocrStatus.textContent = "Extracting raw ingredients list...";
+        
+        Tesseract.recognize(canvas, 'eng')
+          .on('progress', m => {
+            if (m.status === 'recognizing text') {
+              ocrStatus.textContent = `Extracting ingredients: ${Math.round(m.progress * 100)}%`;
+            }
+          })
+          .then(({ data: { text } }) => {
+            ocrLoader.style.display = "none";
+            document.getElementById("analyzer-textarea").value = text;
+            
+            // Try to guess title
+            const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 3);
+            if (lines.length > 0) {
+              document.getElementById("analyzer-product-name").value = lines[0];
+            }
+            showToast("OCR complete! Copied ingredients to analyzer.", "success");
+          })
+          .catch(err => {
+            console.error(err);
+            ocrLoader.style.display = "none";
+            showToast("Screenshot OCR failed.", "danger");
+          });
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
 }
 
-function processScreenshotOcr(file) {
-  const statusText = document.getElementById("ocr-status-text");
-  const loader = document.getElementById("ocr-loader");
-  if (loader) loader.style.display = "flex";
-  if (statusText) statusText.textContent = "Scanning structural layout texts...";
+// --- 11. HIGH PERFORMANCE REAL-TIME BARCODE DETECTOR LOOP ---
+function initializeCameraScanner() {
+  const scannerStatus = document.getElementById("camera-status-msg");
+  if (scannerStatus) scannerStatus.textContent = "Accessing camera stream...";
 
-  Tesseract.recognize(file, 'eng').then(({ data: { text } }) => {
-    if (loader) loader.style.display = "none";
-    document.getElementById("analyzer-textarea").value = text;
-    showToast("Parsed text loaded into viewport!", "success");
+  const formatsToSupport = [
+    Html5QrcodeSupportedFormats.EAN_13,
+    Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.UPC_A
+  ];
+
+  // 1. Try Browser Native BarcodeDetector real-time framework
+  if ('BarcodeDetector' in window) {
+    const video = document.createElement("video");
+    video.autoplay = true;
+    video.playsInline = true;
+    video.style.width = "100%";
+    video.style.height = "100%";
+    video.style.objectFit = "cover";
+
+    const readerContainer = document.getElementById("camera-reader-element");
+    readerContainer.innerHTML = "";
+    readerContainer.appendChild(video);
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(stream => {
+        video.srcObject = stream;
+        STATE.videoStream = stream;
+        STATE.cameraActive = true;
+        if (scannerStatus) scannerStatus.textContent = "Native camera active. Align barcode.";
+
+        const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] });
+        
+        // Fast Frame Loop
+        const detectFrame = () => {
+          if (!STATE.cameraActive) return;
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            detector.detect(video)
+              .then(barcodes => {
+                if (barcodes.length > 0) {
+                  showToast("Barcode detected natively!", "success");
+                  stopCameraScanner();
+                  setupPipelineSuccess(barcodes[0].rawValue);
+                } else {
+                  STATE.cameraLoopId = requestAnimationFrame(detectFrame);
+                }
+              })
+              .catch(() => {
+                STATE.cameraLoopId = requestAnimationFrame(detectFrame);
+              });
+          } else {
+            STATE.cameraLoopId = requestAnimationFrame(detectFrame);
+          }
+        };
+        detectFrame();
+
+        // Wire up Force Snap button
+        document.getElementById("camera-snapshot-btn").onclick = () => {
+          triggerForceSnap(video);
+        };
+      })
+      .catch(() => {
+        // getUserMedia failed, fallback to Html5Qrcode
+        startHtml5QrcodeFallback(formatsToSupport);
+      });
+  } else {
+    // Native BarcodeDetector not supported, fallback to Html5Qrcode
+    startHtml5QrcodeFallback(formatsToSupport);
+  }
+}
+
+function startHtml5QrcodeFallback(formatsToSupport) {
+  const scannerStatus = document.getElementById("camera-status-msg");
+  if (scannerStatus) scannerStatus.textContent = "Accessing camera (fallback)...";
+
+  STATE.scannerInstance = new Html5Qrcode("camera-reader-element");
+  STATE.scannerInstance.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: { width: 260, height: 160 }, formatsToSupport: formatsToSupport },
+    (decodedText) => {
+      showToast("Barcode found!", "success");
+      stopCameraScanner();
+      setupPipelineSuccess(decodedText);
+    },
+    () => {}
+  ).then(() => {
+    if (scannerStatus) scannerStatus.textContent = "Align barcode in camera guides.";
+    
+    // Wire up snapshot capture force snap button
+    document.getElementById("camera-snapshot-btn").onclick = () => {
+      const video = document.querySelector("#camera-reader-element video");
+      if (video) {
+        triggerForceSnap(video);
+      }
+    };
   }).catch(() => {
-    if (loader) loader.style.display = "none";
-    showToast("OCR layout decryption stalled.", "danger");
+    if (scannerStatus) scannerStatus.textContent = "Camera inaccessible. Manual entry allowed.";
   });
 }
 
-// --- 11. HOUSEHOLD GRAPHS & FAMILY MATRIX ---
+function triggerForceSnap(videoElement) {
+  const canvas = document.getElementById("pipeline-canvas");
+  const ctx = canvas.getContext("2d");
+  
+  canvas.width = videoElement.videoWidth || 640;
+  canvas.height = videoElement.videoHeight || 480;
+  ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+  
+  showToast("Snapshot snapped. Processing silently...", "info");
+  stopCameraScanner();
+  
+  canvas.toBlob(blob => {
+    const file = new File([blob], "snapshot.png", { type: "image/png" });
+    handleUploadedBarcodeFile(file);
+  }, "image/png");
+}
+
+function stopCameraScanner() {
+  STATE.cameraActive = false;
+  if (STATE.cameraLoopId) {
+    cancelAnimationFrame(STATE.cameraLoopId);
+    STATE.cameraLoopId = null;
+  }
+  if (STATE.videoStream) {
+    STATE.videoStream.getTracks().forEach(track => track.stop());
+    STATE.videoStream = null;
+  }
+  if (STATE.scannerInstance && STATE.scannerInstance.isScanning) {
+    STATE.scannerInstance.stop().catch(err => console.error(err));
+  }
+}
+
+// --- 12. HOUSEHOLD SAFETY GRAPH MATRIX RENDER ---
 function renderHouseholdList() {
-  const container = document.getElementById("household-members-list");
+  const container = document.getElementById("family-members-list");
   const dashboardContainer = document.getElementById("active-profile-pills");
+  
   if (!container || !dashboardContainer) return;
+  
   container.innerHTML = "";
   dashboardContainer.innerHTML = "";
+
   STATE.familyMembers.forEach((member, idx) => {
+    // 1. Render in Family Manager Modal
     const item = document.createElement("div");
     item.className = "family-list-item";
+    
     const clinicalFlags = [];
     if (member.clinical.diabetic) clinicalFlags.push("Diabetic");
     if (member.clinical.highbp) clinicalFlags.push("High BP");
     if (member.clinical.keto) clinicalFlags.push("Keto");
+    
     const allergyFlags = [];
     Object.keys(member.allergies).forEach(k => {
       if (member.allergies[k]) allergyFlags.push(k.charAt(0).toUpperCase() + k.slice(1));
     });
+
     const subText = [
       member.diet !== "none" ? member.diet.toUpperCase() : "Unrestricted",
       clinicalFlags.length > 0 ? clinicalFlags.join("/") : "",
       allergyFlags.length > 0 ? "No " + allergyFlags.join("/") : ""
     ].filter(s => s !== "").join(" • ");
+
     item.innerHTML = `
       <div class="family-list-item-info">
         <strong>${member.name}</strong>
@@ -1090,6 +1379,7 @@ function renderHouseholdList() {
       </div>
       ${member.id !== "fam-1" ? `<button type="button" class="btn btn-secondary btn-sm remove-member-btn" data-index="${idx}" style="color: var(--danger); font-size:10px; font-weight:700;">Remove</button>` : `<span style="font-size:10px; color: var(--success); font-weight:700;">Admin</span>`}
     `;
+    
     const removeBtn = item.querySelector(".remove-member-btn");
     if (removeBtn) {
       removeBtn.onclick = () => {
@@ -1099,8 +1389,10 @@ function renderHouseholdList() {
         showToast("Household member removed.", "warning");
       };
     }
-    container.appendChild(item);
     
+    container.appendChild(item);
+
+    // 2. Render on Dashboard Pills Summary
     const pill = document.createElement("span");
     pill.className = "profile-badge-pill active-diet";
     pill.textContent = `${member.name} (${member.diet === 'none' ? 'General' : member.diet})`;
@@ -1108,19 +1400,62 @@ function renderHouseholdList() {
   });
 }
 
-// --- 12. WHATSAPP AUDIT MATRIX ENCODE ---
-function shareAuditOnWhatsApp(product) {
-  let shareText = `*🛒 Sattva Scan Report: ${product.name}* (${product.brand})\n\n`;
-  shareText += `*Nutrition Metrics (Per Serving):*\n`;
-  shareText += `▫️ Calories: ${product.nutrition.calories} kcal\n`;
-  shareText += `▫️ Sugar: ${product.nutrition.sugar}g\n`;
-  shareText += `▫️ Sodium: ${product.nutrition.sodium}mg\n\n`;
-  shareText += `*Family Security Compatibility Check:*\n`;
+function runFamilySafetyAudit(product) {
+  const auditGrid = document.getElementById("modal-family-audit-grid");
+  if (!auditGrid) return;
+  auditGrid.innerHTML = "";
 
   STATE.familyMembers.forEach(member => {
-    const res = evaluateCompatibility(product.name, product.ingredients, product.nutrition, member);
-    const emoji = res.status.compatible ? "🟢" : (res.status.dietClass === "warn" ? "⚠️" : "❌");
-    const reasonStr = res.status.compatible ? "Safe / Compatible" : `Incompatible (${res.status.reasons.join(", ")})`;
+    const card = document.createElement("div");
+    card.className = "family-member-card";
+    
+    const evalRes = evaluateCompatibility(product.name, product.ingredients, product.nutrition, member);
+    const { status } = evalRes;
+    
+    let statusClass = "status-pass";
+    let statusLabel = "🟢 Safe";
+    if (status.dietClass === "warn") {
+      statusClass = "status-warn";
+      statusLabel = "⚠️ Caution";
+    } else if (status.dietClass === "fail") {
+      statusClass = "status-fail";
+      statusLabel = "❌ Alert";
+    }
+
+    const initials = member.name.split(/\s+/).map(n => n.charAt(0)).join("").slice(0, 2).toUpperCase();
+
+    card.className = `family-member-card ${statusClass}`;
+    card.innerHTML = `
+      <div class="avatar-initials">${initials}</div>
+      <span class="family-member-name">${member.name}</span>
+      <span class="family-member-status ${status.dietClass}">${statusLabel}</span>
+    `;
+    
+    // Add hover compatibility warnings
+    if (status.reasons.length > 0) {
+      card.title = status.reasons.join("\n");
+    } else {
+      card.title = "Fits diet profile perfectly!";
+    }
+    
+    auditGrid.appendChild(card);
+  });
+}
+
+// Generate structured WhatsApp share audit
+function shareAuditOnWhatsApp(product) {
+  let shareText = `*Sattva Scan Family Food Audit* 🇮🇳\n`;
+  shareText += `*Product:* ${product.brand} - ${product.name}\n\n`;
+  
+  STATE.familyMembers.forEach(member => {
+    const evalRes = evaluateCompatibility(product.name, product.ingredients, product.nutrition, member);
+    const { status } = evalRes;
+    
+    let emoji = "🟢";
+    if (status.dietClass === "warn") emoji = "⚠️";
+    if (status.dietClass === "fail") emoji = "❌";
+    
+    const reasonStr = status.reasons.length > 0 ? `(${status.reasons.join(", ")})` : "Safe!";
     shareText += `${emoji} *${member.name}:* ${reasonStr}\n`;
   });
 
@@ -1128,12 +1463,14 @@ function shareAuditOnWhatsApp(product) {
   if (rawAnal.flags.palmOil) {
     shareText += `\n⚠️ *Warning:* Saturated Palm / Palmolein Oil detected!`;
   }
+  
   if (product.alternatives && product.alternatives.length > 0) {
     shareText += `\n\n*Suggested Healthy Swaps:*`;
     product.alternatives.forEach(alt => {
       shareText += `\n👉 *${alt.name}* (${alt.desc})`;
     });
   }
+
   shareText += `\n\nAudit your packaged foods at Sattva Scan!`;
   window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`, "_blank");
 }
@@ -1143,6 +1480,7 @@ function renderHazardsList(product) {
   const container = document.getElementById("modal-hazards-list");
   if (!container) return;
   container.innerHTML = "";
+
   const evalRes = evaluateCompatibility(product.name, product.ingredients, product.nutrition, STATE.userProfile);
   const { analysis } = evalRes;
   const lang = STATE.activeLanguage;
@@ -1151,12 +1489,15 @@ function renderHazardsList(product) {
     container.innerHTML = `<p class="empty-state">No high-risk chemical additives or emulsifiers detected. Excellent!</p>`;
     return;
   }
+
   analysis.detectedAdditives.forEach(add => {
     const card = document.createElement("div");
     card.className = `hazard-item ${add.safety === "med" ? "mod" : ""}`;
     const badgeColor = add.safety === "high" ? "high" : "med";
     const badgeLabel = add.safety === "high" ? "Avoid" : "Caution";
+    
     const descText = add.desc[lang] || add.desc["en"] || "FSSAI approved food compound.";
+
     card.innerHTML = `
       <div class="hazard-name-row">
         <h5>${add.name}</h5>
@@ -1171,30 +1512,59 @@ function renderHazardsList(product) {
 function updateCalorieDashboardTracker() {
   const c = STATE.dailyIntake;
   const g = STATE.userProfile.goals;
+
   const calLogged = document.getElementById("calories-logged");
   const calGoal = document.getElementById("calories-goal");
   const ring = document.getElementById("calorie-progress-ring");
+
   if (!calLogged || !calGoal || !ring) return;
 
   calLogged.textContent = Math.round(c.calories);
-  calGoal.textContent = g.calories;
-  const pct = Math.min((c.calories / g.goals) * 100, 100) || 0;
-  ring.style.background = `conic-gradient(var(--primary) ${pct * 3.6}deg, var(--border-color) 0deg)`;
+  calGoal.textContent = Math.round(g.calories);
 
-  document.getElementById("sugar-logged").textContent = c.sugar.toFixed(1);
-  document.getElementById("sugar-goal").textContent = g.sugar;
-  document.getElementById("sugar-progress").style.width = `${Math.min((c.sugar / g.sugar) * 100, 100)}%`;
+  const circumference = 377;
+  const percent = Math.min(c.calories / g.calories, 1);
+  const offset = circumference - (percent * circumference);
+  ring.style.strokeDashoffset = offset;
 
-  document.getElementById("sodium-logged").textContent = Math.round(c.sodium);
-  document.getElementById("sodium-goal").textContent = g.sodium;
-  document.getElementById("sodium-progress").style.width = `${Math.min((c.sodium / g.sodium) * 100, 100)}%`;
+  document.getElementById("sugar-tracker-val").textContent = `${c.sugar.toFixed(1)}g / ${g.sugar}g`;
+  document.getElementById("sugar-progress-bar").style.width = `${Math.min((c.sugar / g.sugar) * 100, 100)}%`;
+
+  document.getElementById("sodium-tracker-val").textContent = `${Math.round(c.sodium)}mg / ${g.sodium}mg`;
+  document.getElementById("sodium-progress-bar").style.width = `${Math.min((c.sodium / g.sodium) * 100, 100)}%`;
+
+  document.getElementById("carbs-tracker-val").textContent = `${c.carbs.toFixed(1)}g / 220g`;
+  document.getElementById("carbs-progress-bar").style.width = `${Math.min((c.carbs / 220) * 100, 100)}%`;
+
+  document.getElementById("protein-tracker-val").textContent = `${c.protein.toFixed(1)}g / 60g`;
+  document.getElementById("protein-progress-bar").style.width = `${Math.min((c.protein / 60) * 100, 100)}%`;
+
+  renderHouseholdList();
 }
 
 function openProductDetailsModal(product) {
-  const langButtons = document.querySelectorAll(".lang-btn");
+  // Multigenerational family audit
+  runFamilySafetyAudit(product);
+
+  // Setup Natural Language alerts
+  const aiHealthPanel = document.getElementById("modal-ai-health-panel");
+  const aiHealthMsg = document.getElementById("modal-ai-health-msg");
+  const aiAlerts = runCustomAiAudits(product);
+
+  if (aiAlerts.length > 0) {
+    aiHealthPanel.style.display = "block";
+    aiHealthMsg.innerHTML = aiAlerts.map(a => `• <strong>${a.condition}:</strong> ${a.message}`).join("<br>");
+  } else {
+    aiHealthPanel.style.display = "none";
+  }
+
+  // INS explainer bilingual togglers
+  STATE.activeLanguage = "en";
+  const langButtons = document.querySelectorAll(".lang-toggle-btn");
   langButtons.forEach(btn => {
     btn.classList.remove("active");
-    if (btn.getAttribute("data-lang") === STATE.activeLanguage) btn.classList.add("active");
+    if (btn.getAttribute("data-lang") === "en") btn.classList.add("active");
+    
     btn.onclick = () => {
       langButtons.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
@@ -1202,26 +1572,31 @@ function openProductDetailsModal(product) {
       renderHazardsList(product);
     };
   });
+
   renderHazardsList(product);
 
+  // WhatsApp share
   document.getElementById("modal-whatsapp-share-btn").onclick = () => {
     shareAuditOnWhatsApp(product);
   };
 
+  // Alternates (Deep Quick Commerce links)
   const alternativesContainer = document.getElementById("modal-alternatives-list");
   alternativesContainer.innerHTML = "";
   if (product.alternatives && product.alternatives.length > 0) {
     product.alternatives.forEach(alt => {
       const item = document.createElement("div");
       item.className = "alt-item";
+      
       const purchaseLink = alt.link || `https://blinkit.com/s/?q=${encodeURIComponent(alt.name)}`;
+      
       item.innerHTML = `
         <div class="alt-info">
           <h5>${alt.name}</h5>
           <span>${alt.desc}</span>
         </div>
         <a class="btn btn-secondary btn-sm" href="${purchaseLink}" target="_blank" style="font-size: 9px; padding: 4px 8px; font-weight:700; border-color: rgba(62,125,70,0.4); text-decoration:none; color:var(--primary);">
-          ⚡ Swaps 
+          ⚡ Swaps
         </a>
       `;
       alternativesContainer.appendChild(item);
@@ -1230,10 +1605,11 @@ function openProductDetailsModal(product) {
     alternativesContainer.innerHTML = `<p class="empty-state">No healthy local alternatives loaded.</p>`;
   }
 
+  // Populating card elements
   document.getElementById("modal-product-name").textContent = product.name;
   document.getElementById("modal-product-brand").textContent = product.brand;
   document.getElementById("modal-product-calories").textContent = Math.round(product.nutrition.calories);
-
+  
   const fssaiInd = document.getElementById("fssai-indicator");
   if (product.fssai) {
     fssaiInd.style.display = "inline-block";
@@ -1244,128 +1620,180 @@ function openProductDetailsModal(product) {
 
   const evalResult = evaluateCompatibility(product.name, product.ingredients, product.nutrition, STATE.userProfile);
   const { status } = evalResult;
-  const statusPanel = document.getElementById("modal-dietary-status");
-  const statusMsg = document.getElementById("modal-status-text");
 
-  statusPanel.className = `status-panel-alert ${status.dietClass}`;
-  if (status.compatible && status.dietClass === "pass") {
-    statusMsg.textContent = "Perfectly compatible with your profile diet guidelines.";
-  } else if (!status.compatible && status.dietClass === "fail") {
-    statusMsg.textContent = `CRITICAL FAILURE: ${status.reasons.join(" | ")}`;
+  const statusPanel = document.getElementById("modal-dietary-status");
+  const statusMsg = document.getElementById("modal-dietary-msg");
+  
+  statusPanel.className = `warning-panel ${status.dietClass}`;
+  if (status.dietClass === "pass") {
+    statusMsg.innerHTML = `🟢 <strong>Perfect Match!</strong> Healthy and safe for your diet target goals.`;
+  } else if (status.dietClass === "warn") {
+    statusMsg.innerHTML = `⚠️ <strong>Dietary Caution:</strong><br>• ${status.reasons.join("<br>• ")}`;
   } else {
-    statusMsg.textContent = `CAUTION: ${status.reasons.join(" | ")}`;
+    statusMsg.innerHTML = `❌ <strong>DIETARY ALERT:</strong><br>• ${status.reasons.join("<br>• ")}`;
   }
 
-  const householdStatusList = document.getElementById("modal-household-compatibility-list");
-  householdStatusList.innerHTML = "";
-  STATE.familyMembers.forEach(member => {
-    const famEval = evaluateCompatibility(product.name, product.ingredients, product.nutrition, member);
-    const row = document.createElement("div");
-    row.className = "household-compat-row";
-    const statusLabel = famEval.status.compatible ? "Compatible" : (famEval.status.dietClass === "warn" ? "Caution" : "Block");
-    row.innerHTML = `
-      <span><strong>${member.name}</strong> (${member.diet === 'none' ? 'General' : member.diet})</span>
-      <span class="badge-status-pill ${famEval.status.dietClass}">${statusLabel}</span>
-    `;
-    householdStatusList.appendChild(row);
+  // Nutri-Score Letter Grade
+  const scoreContainer = document.getElementById("nutri-grade-container");
+  ["a", "b", "c", "d", "e"].forEach(g => {
+    const el = scoreContainer.querySelector(`.grade-${g}`);
+    el.className = `grade-${g}`;
+    if (g === product.nutri_score.toLowerCase()) el.classList.add("active");
   });
 
-  const aiGrid = document.getElementById("modal-ai-insights-grid");
-  aiGrid.innerHTML = "";
-  const aiAlerts = runCustomAiAudits(product);
-  if (aiAlerts.length === 0) {
-    aiGrid.innerHTML = `<div class="ai-insight-card safe">🧭 No special medical context interactions found. Safe for your declared parameters.</div>`;
-  } else {
-    aiAlerts.forEach(alert => {
-      const alertCard = document.createElement("div");
-      alertCard.className = "ai-insight-card alert";
-      alertCard.innerHTML = `<strong>⚠️ Contextual Link: ${alert.condition}</strong><p>${alert.message}</p>`;
-      aiGrid.appendChild(alertCard);
-    });
-  }
+  // Limit impact indicators
+  const impactContainer = document.getElementById("modal-impact-metrics");
+  impactContainer.innerHTML = "";
+  const metrics = [
+    { label: "Sugar", val: product.nutrition.sugar, limit: STATE.userProfile.goals.sugar, unit: "g", color: "sugar" },
+    { label: "Sodium", val: product.nutrition.sodium, limit: STATE.userProfile.goals.sodium, unit: "mg", color: "sodium" }
+  ];
+  metrics.forEach(m => {
+    const pct = Math.min((m.val / m.limit) * 100, 100);
+    const row = document.createElement("div");
+    row.className = "nutrient-row";
+    row.innerHTML = `
+      <div class="nut-label" style="font-size:10px;">
+        <span>${m.label} (${m.val}${m.unit})</span>
+        <span>${pct.toFixed(0)}%</span>
+      </div>
+      <div class="nut-progress-bg" style="height:5px;">
+        <div class="nut-progress-fg progress-${m.color}" style="width: ${pct}%"></div>
+      </div>
+    `;
+    impactContainer.appendChild(row);
+  });
 
-  document.getElementById("modal-log-intake-btn").onclick = () => {
+  document.getElementById("modal-raw-ingredients").textContent = product.ingredients;
+
+  // Log serving callback button
+  const logBtn = document.getElementById("modal-log-consumption-btn");
+  logBtn.onclick = () => {
     STATE.dailyIntake.calories += product.nutrition.calories;
     STATE.dailyIntake.sugar += product.nutrition.sugar;
     STATE.dailyIntake.sodium += product.nutrition.sodium;
-    STATE.dailyIntake.carbs += product.nutrition.carbs;
-    STATE.dailyIntake.protein += product.nutrition.protein;
+    STATE.dailyIntake.carbs += product.nutrition.carbs || 0;
+    STATE.dailyIntake.protein += product.nutrition.protein || 0;
     saveStateToStorage();
     updateCalorieDashboardTracker();
     document.getElementById("product-modal").classList.remove("active");
-    showToast("Product nutritional load logged to tracker!", "success");
+    showToast(`Logged serving of ${product.name}!`, "success");
     document.querySelector('.tab-btn[data-tab="tab-dashboard"]').click();
   };
 
+  // Recent scans tracker
   if (!STATE.recentScans.some(s => s.barcode === product.barcode)) {
-    STATE.recentScans.unshift({ barcode: product.barcode, name: product.name, brand: product.brand, status: status.dietClass === "fail" ? "fail" : "pass" });
+    STATE.recentScans.unshift({
+      barcode: product.barcode, name: product.name, brand: product.brand,
+      status: status.dietClass === "fail" ? "fail" : "pass"
+    });
     if (STATE.recentScans.length > 6) STATE.recentScans.pop();
     saveStateToStorage();
     renderRecentScansList();
   }
+
   document.getElementById("product-modal").classList.add("active");
 }
 
+// Inline Pioneer Crowdsourcing Card
 function renderInlineCrowdsourceCard(barcode, searchedName = "") {
   const container = document.getElementById("search-results-list");
   if (!container) return;
   container.innerHTML = "";
+
   const card = document.createElement("div");
   card.className = "not-found-card";
   card.innerHTML = `
     <h4>Product Spotted! (Pioneer Mode)</h4>
     <p>We couldn't resolve EAN barcode: <strong>${barcode}</strong>. Upload Front & Back photos to scan & auto-fill to earn 150 points!</p>
+    
     <div class="crowd-inline-uploader" style="margin-top: 10px;">
       <div class="row" style="display:flex; gap:6px; margin-bottom:6px;">
         <input type="text" id="inline-brand" placeholder="Brand (e.g. Haldiram's)" style="flex:1; padding:6px 10px; font-size:11px;">
         <input type="text" id="inline-name" placeholder="Product Name" value="${searchedName}" style="flex:1; padding:6px 10px; font-size:11px;">
       </div>
+      
       <div class="upload-button-wrapper" style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:6px;">
         <div class="upload-file-button" id="btn-front-photo">📷 Front Packaging Cover</div>
-        <div class="upload-file-button" id="btn-back-photo">📷 Ingredients Label</div>
+        <div class="upload-file-button" id="btn-back-photo">📷 Ingredients Label Back</div>
       </div>
-      <textarea id="inline-ingredients-field" placeholder="Extracted ingredients matrix text fallbacks go here..." style="width:100%; height:45px; padding:6px; font-size:11px; margin-bottom:6px; border-radius:8px; border:1px solid #DDD; resize:none;"></textarea>
-      <div id="inline-ocr-loader" style="display:none; align-items:center; gap:6px; font-size:10px; margin-bottom:6px; color:var(--primary);"><div class="spinner"></div> Reading composition text...</div>
-      <button class="btn btn-primary" id="btn-register-crowd" style="width: 100%;">Register & Index Product</button>
+
+      <!-- Silent Background OCR parser indicators for Pioneer Back Photo -->
+      <div id="inline-ocr-loader" style="display:none; align-items:center; justify-content:center; gap:6px; margin:4px 0;">
+        <div class="spinner"></div>
+        <span style="font-family:var(--font-sans); font-size:10px; color:var(--text-secondary);">Scanning Back ingredients text...</span>
+      </div>
+
+      <div class="form-group" style="margin-bottom:6px; text-align:left;">
+        <label style="font-size:9.5px;">Extracted Ingredients (Auto-populated):</label>
+        <textarea id="inline-ingredients-field" rows="2" placeholder="Upload Ingredients photo to auto-extract text..." style="font-size:10px; padding:6px; width:100%; border-radius:6px; border:1px solid var(--border-color);"></textarea>
+      </div>
+      
+      <button class="btn btn-primary btn-sm btn-block" id="btn-register-crowd">
+        Register Product & Claim 150 Points
+      </button>
     </div>
   `;
+
   container.appendChild(card);
 
+  let frontAttached = false;
+  let backAttached = false;
+
   const handlePioneerAttach = (btnId) => {
-    document.getElementById(btnId).onclick = () => {
+    const el = document.getElementById(btnId);
+    el.onclick = () => {
       const fileInput = document.createElement("input");
       fileInput.type = "file";
       fileInput.accept = "image/*";
       fileInput.onchange = (e) => {
-        if (e.target.files.length > 0) {
-          const file = e.target.files[0];
-          document.getElementById(btnId).textContent = "✅ Image Attached";
-          document.getElementById(btnId).style.borderColor = "var(--success)";
-          if (btnId === "btn-back-photo") {
-            const inlineOcrLoader = document.getElementById("inline-ocr-loader");
-            if (inlineOcrLoader) inlineOcrLoader.style.display = "flex";
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-              const img = new Image();
-              img.onload = () => {
-                Tesseract.recognize(img, 'eng').then(({ data: { text } }) => {
+        if (e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        el.className = "upload-file-button attached";
+        el.textContent = "✓ Attached";
+        
+        if (btnId === "btn-front-photo") {
+          frontAttached = true;
+          showToast("Front packaging photo attached!", "success");
+        }
+        
+        if (btnId === "btn-back-photo") {
+          backAttached = true;
+          const inlineOcrLoader = document.getElementById("inline-ocr-loader");
+          if (inlineOcrLoader) inlineOcrLoader.style.display = "flex";
+
+          // Perform background OCR on back ingredients photo immediately to fill details!
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          const reader = new FileReader();
+          
+          reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+              canvas.width = img.width;
+              canvas.height = img.height;
+              ctx.drawImage(img, 0, 0);
+              
+              Tesseract.recognize(canvas, 'eng')
+                .then(({ data: { text } }) => {
                   if (inlineOcrLoader) inlineOcrLoader.style.display = "none";
                   document.getElementById("inline-ingredients-field").value = text;
                   showToast("Ingredients parsed & auto-filled!", "success");
-                }).catch(() => {
+                })
+                .catch(() => {
                   if (inlineOcrLoader) inlineOcrLoader.style.display = "none";
                   showToast("Could not auto-extract ingredients. Please paste manually.", "warning");
                 });
-              };
-              img.src = ev.target.result;
             };
-            reader.readAsDataURL(file);
-          }
+            img.src = ev.target.result;
+          };
+          reader.readAsDataURL(file);
         }
       };
       fileInput.click();
     };
   };
+
   handlePioneerAttach("btn-front-photo");
   handlePioneerAttach("btn-back-photo");
 
@@ -1373,14 +1801,17 @@ function renderInlineCrowdsourceCard(barcode, searchedName = "") {
     const brand = document.getElementById("inline-brand").value.trim();
     const name = document.getElementById("inline-name").value.trim();
     const parsedIngredients = document.getElementById("inline-ingredients-field").value.trim();
+
     if (!brand || !name) {
       showToast("Please enter product brand and name.", "warning");
       return;
     }
+
     showToast("Running Visual Image checks...", "info");
     const regBtn = document.getElementById("btn-register-crowd");
     regBtn.textContent = "Matching cover & indexing database...";
     regBtn.disabled = true;
+
     setTimeout(() => {
       const customProd = {
         barcode: barcode,
@@ -1392,10 +1823,12 @@ function renderInlineCrowdsourceCard(barcode, searchedName = "") {
         nutri_score: "d",
         alternatives: getGenericAlternatives(name)
       };
+
       LOCAL_PRODUCTS_DB[barcode] = customProd;
       STATE.userPoints += 150;
       saveStateToStorage();
       document.getElementById("user-points-val").textContent = STATE.userPoints;
+
       triggerRewardConfetti(150);
       document.getElementById("food-search-input").value = "";
       container.innerHTML = "";
@@ -1404,44 +1837,51 @@ function renderInlineCrowdsourceCard(barcode, searchedName = "") {
   };
 }
 
+// Recent scanned lists
 function renderRecentScansList() {
   const container = document.getElementById("recent-scans-list");
   if (!container) return;
+
   if (STATE.recentScans.length === 0) {
-    container.innerHTML = `<p class="empty-state">No products indexed recently.</p>`;
+    container.innerHTML = `<p class="empty-state">No products audited yet.</p>`;
     return;
   }
   container.innerHTML = "";
-  STATE.recentScans.forEach(s => {
-    const row = document.createElement("div");
-    row.className = "recent-scan-row";
-    row.innerHTML = `
-      <div>
-        <h5 style="margin:0; font-size:11.5px; color:var(--text-primary); font-family:var(--font-sans);">${s.name}</h5>
-        <span style="font-size:9.5px; color:var(--text-secondary); font-weight:500;">${s.brand}</span>
+  STATE.recentScans.forEach(item => {
+    const card = document.createElement("div");
+    card.className = "recent-item";
+    card.innerHTML = `
+      <div class="recent-item-info">
+        <h4>${item.name}</h4>
+        <span>${item.brand} • ${item.barcode}</span>
       </div>
-      <button class="btn btn-secondary btn-sm recent-re-view-btn" style="padding:2px 8px; font-size:9px; font-weight:700; border-radius:6px;">Review</button>
+      <span class="recent-item-status ${item.status}">${item.status === "pass" ? "Safe Match" : "Caution"}</span>
     `;
-    row.querySelector(".recent-re-view-btn").onclick = () => {
-      if (LOCAL_PRODUCTS_DB[s.barcode]) openProductDetailsModal(LOCAL_PRODUCTS_DB[s.barcode]);
-      else fetchOpenFoodFactsProduct(s.barcode);
+    card.onclick = () => {
+      const dbProduct = LOCAL_PRODUCTS_DB[item.barcode];
+      if (dbProduct) {
+        openProductDetailsModal(dbProduct);
+      } else {
+        fetchOpenFoodFactsProduct(item.barcode);
+      }
     };
-    container.appendChild(row);
+    container.appendChild(card);
   });
 }
 
-function getGenericAlternatives(prodName) {
-  const lowercase = prodName.toLowerCase();
-  if (lowercase.includes("noodle") || lowercase.includes("maggi")) {
+// Healthy swaps query alternatives
+function getGenericAlternatives(productName) {
+  const lower = productName.toLowerCase();
+  if (lower.includes("noodle") || lower.includes("maggi") || lower.includes("ramen")) {
     return [
-      { name: "Yoga Bar Masala Oats Noodles", desc: "No Palm Oil, Whole Wheat & Oats.", link: "https://www.blinkit.com/s/?q=yoga+bar+noodles" },
-      { name: "WickedGud Millet Noodles", desc: "Zero Maida, Gluten-Free alternative.", link: "https://www.blinkit.com/s/?q=wickedgud+noodles" }
+      { name: "Yoga Bar Whole Wheat Oats Noodles", desc: "No Palm Oil, high fiber.", link: "https://www.blinkit.com/s/?q=yoga+bar+noodles" },
+      { name: "WickedGud Millet Masala Noodles", desc: "Zero maida, gluten-free.", link: "https://www.blinkit.com/s/?q=wickedgud+noodles" }
     ];
   }
-  if (lowercase.includes("chip") || lowercase.includes("kurkure") || lowercase.includes("lay")) {
+  if (lower.includes("chip") || lower.includes("lays") || lower.includes("kurkure") || lower.includes("namkeen")) {
     return [
-      { name: "Beyond Snack Banana Chips", desc: "Prepared in clean coconut oil.", link: "https://www.blinkit.com/s/?q=beyond+snack+banana+chips" },
-      { name: "Too Yumm Baked Multigrain Chips", desc: "Baked with 40% less saturated fats.", link: "https://www.blinkit.com/s/?q=too+yumm+multigrain" }
+      { name: "Farmley Roasted Makhana", desc: "High protein, baked healthy local swap.", link: "https://www.blinkit.com/s/?q=farmley+roasted+makhana" },
+      { name: "Beyond Snack Kerala Banana Chips", desc: "Cooked in 100% pure coconut oil.", link: "https://www.blinkit.com/s/?q=beyond+snack+banana+chips" }
     ];
   }
   return [
@@ -1456,17 +1896,21 @@ document.addEventListener("DOMContentLoaded", () => {
   updateCalorieDashboardTracker();
   renderRecentScansList();
   initializeOcrScreenshotLoader();
-  renderHouseholdList();
 
+  // Tab navigation bindings
   const tabButtons = document.querySelectorAll(".tab-btn");
   const tabPanels = document.querySelectorAll(".tab-panel");
+  
   tabButtons.forEach(btn => {
     btn.addEventListener("click", () => {
       const targetTab = btn.getAttribute("data-tab");
+      
       tabButtons.forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
+      
       tabPanels.forEach(p => p.classList.remove("active"));
       document.getElementById(targetTab).classList.add("active");
+      
       if (targetTab === "tab-scanner") {
         initializeCameraScanner();
       } else {
@@ -1475,7 +1919,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Profile modal configuration hooks
+  // Profile modal settings setup
   const profileBtn = document.getElementById("profile-btn");
   const profileModal = document.getElementById("profile-modal");
   const profileClose = document.getElementById("profile-modal-close");
@@ -1490,91 +1934,81 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("allergy-gluten").checked = p.allergies.gluten;
     document.getElementById("allergy-nuts").checked = p.allergies.nuts;
     document.getElementById("allergy-soy").checked = p.allergies.soy;
+    
     document.getElementById("diet-diabetic").checked = p.clinical.diabetic;
     document.getElementById("diet-highbp").checked = p.clinical.highbp;
     document.getElementById("diet-keto").checked = p.clinical.keto;
+
     document.getElementById("goal-calories-input").value = p.goals.calories;
     document.getElementById("goal-sugar-input").value = p.goals.sugar;
     document.getElementById("goal-sodium-input").value = p.goals.sodium;
-    document.getElementById("profile-natural-text").value = p.naturalLanguageInput || "";
+    
+    document.getElementById("ai-health-input").value = p.naturalLanguageInput || "";
+
+    renderHouseholdList();
     profileModal.classList.add("active");
   };
 
-  if (profileBtn) profileBtn.onclick = openProfile;
-  if (editProfileSummaryBtn) editProfileSummaryBtn.onclick = openProfile;
-  if (profileClose) profileClose.onclick = () => profileModal.classList.remove("active");
-  if (profileCancel) profileCancel.onclick = () => profileModal.classList.remove("active");
-
-  if (profileSave) {
-    profileSave.onclick = () => {
-      const p = STATE.userProfile;
-      p.diet = document.querySelector('input[name="base-diet"]:checked').value;
-      p.allergies.dairy = document.getElementById("allergy-dairy").checked;
-      p.allergies.gluten = document.getElementById("allergy-gluten").checked;
-      p.allergies.nuts = document.getElementById("allergy-nuts").checked;
-      p.allergies.soy = document.getElementById("allergy-soy").checked;
-      p.clinical.diabetic = document.getElementById("diet-diabetic").checked;
-      p.clinical.highbp = document.getElementById("diet-highbp").checked;
-      p.clinical.keto = document.getElementById("diet-keto").checked;
-      p.goals.calories = parseInt(document.getElementById("goal-calories-input").value, 10) || 2000;
-      p.goals.sugar = parseInt(document.getElementById("goal-sugar-input").value, 10) || 40;
-      p.goals.sodium = parseInt(document.getElementById("goal-sodium-input").value, 10) || 1500;
-      p.naturalLanguageInput = document.getElementById("profile-natural-text").value.trim();
-      saveStateToStorage();
-      updateCalorieDashboardTracker();
-      renderHouseholdList();
-      profileModal.classList.remove("active");
-      showToast("Profile metrics updated successfully.", "success");
-    };
-  }
-
-  // Native Search bindings
-  const searchInput = document.getElementById("food-search-input");
-  if (searchInput) {
-    searchInput.addEventListener("input", (e) => {
-      executeProductSearch(e.target.value);
-    });
-  }
-
-  // --- AUTOMATIC RESTART CLICK-EVENT BINDINGS ---
+  profileBtn.addEventListener("click", openProfile);
+  if (editProfileSummaryBtn) editProfileSummaryBtn.addEventListener("click", openProfile);
+  profileClose.addEventListener("click", () => profileModal.classList.remove("active"));
+  profileCancel.addEventListener("click", () => profileModal.classList.remove("active"));
   
-  // 1. "Scan Another" Action inside your newly expanded modal footer markup
-  const scanAnotherActionBtn = document.getElementById("modal-scan-another-action");
-  if (scanAnotherActionBtn) {
-    scanAnotherActionBtn.addEventListener("click", () => {
-      document.getElementById("product-modal").classList.remove("active");
-      initializeCameraScanner(); // Instantly boots the stream right back up cleanly
-    });
-  }
+  profileSave.addEventListener("click", (e) => {
+    e.preventDefault();
+    const form = document.getElementById("profile-settings-form");
+    const p = STATE.userProfile;
 
-  // 2. Adjust default Back Button inside details overlay to also auto-reset live feed loops
-  const modalCloseActionBtn = document.getElementById("modal-close-action");
-  if (modalCloseActionBtn) {
-    modalCloseActionBtn.addEventListener("click", () => {
-      document.getElementById("product-modal").classList.remove("active");
-      initializeCameraScanner(); 
-    });
-  }
+    p.diet = form.elements["base-diet"].value;
+    p.allergies.dairy = document.getElementById("allergy-dairy").checked;
+    p.allergies.gluten = document.getElementById("allergy-gluten").checked;
+    p.allergies.nuts = document.getElementById("allergy-nuts").checked;
+    p.allergies.soy = document.getElementById("allergy-soy").checked;
+    
+    p.clinical.diabetic = document.getElementById("diet-diabetic").checked;
+    p.clinical.highbp = document.getElementById("diet-highbp").checked;
+    p.clinical.keto = document.getElementById("diet-keto").checked;
 
-  // 3. Header absolute positioned exit 'x' icon click action re-boot
-  const productModalCloseXBtn = document.getElementById("product-modal-close");
-  if (productModalCloseXBtn) {
-    productModalCloseXBtn.addEventListener("click", () => {
-      initializeCameraScanner();
-    });
-  }
+    p.goals.calories = parseInt(document.getElementById("goal-calories-input").value, 10) || 2000;
+    p.goals.sugar = parseInt(document.getElementById("goal-sugar-input").value, 10) || 40;
+    p.goals.sodium = parseInt(document.getElementById("goal-sodium-input").value, 10) || 1500;
+    
+    // Natural language parsing & triggers auto sync!
+    const rawInput = document.getElementById("ai-health-input").value.trim();
+    p.naturalLanguageInput = rawInput;
 
-  // Household additions controller
-  document.getElementById("add-family-member-btn").onclick = () => {
+    if (rawInput) {
+      const parsedNL = parseNaturalLanguageHealth(rawInput);
+      if (parsedNL.diet) p.diet = parsedNL.diet;
+      Object.keys(parsedNL.allergies).forEach(k => {
+        if (parsedNL.allergies[k]) p.allergies[k] = true;
+      });
+      Object.keys(parsedNL.clinical).forEach(k => {
+        if (parsedNL.clinical[k]) p.clinical[k] = true;
+      });
+      showToast("✨ Natural language profile processed and sync'd!", "success");
+    }
+
+    saveStateToStorage();
+    updateCalorieDashboardTracker();
+    profileModal.classList.remove("active");
+    showToast("Household graph saved!", "success");
+  });
+
+  // Household Family graph member additions
+  document.getElementById("btn-add-family-member").onclick = () => {
     const name = document.getElementById("family-member-name").value.trim();
+    const diet = document.getElementById("family-member-diet").value;
+    
     if (!name) {
-      showToast("Please declare a member identification name.", "warning");
+      showToast("Please enter a name for the family member.", "warning");
       return;
     }
+
     const newMember = {
       id: "fam-" + Date.now(),
       name: name,
-      diet: document.getElementById("family-member-diet").value,
+      diet: diet,
       clinical: {
         diabetic: document.getElementById("family-member-diabetic").checked,
         highbp: document.getElementById("family-member-highbp").checked,
@@ -1587,34 +2021,55 @@ document.addEventListener("DOMContentLoaded", () => {
         soy: false
       }
     };
+
     STATE.familyMembers.push(newMember);
     saveStateToStorage();
     renderHouseholdList();
+
+    // Reset inputs
     document.getElementById("family-member-name").value = "";
     document.getElementById("family-member-diabetic").checked = false;
     document.getElementById("family-member-highbp").checked = false;
     document.getElementById("family-member-nuts").checked = false;
     document.getElementById("family-member-dairy").checked = false;
-    showToast(`Added ${name} to Household Family Graph!`, "success");
+    showToast(`Added ${name} to Family Graph!`, "success");
   };
 
   document.getElementById("reset-daily-tracker").addEventListener("click", () => {
     STATE.dailyIntake = { calories: 0, sugar: 0, sodium: 0, carbs: 0, protein: 0 };
     saveStateToStorage();
     updateCalorieDashboardTracker();
-    showToast("Intake counters reset to zero.", "info");
+    showToast("Today's logs reset.", "info");
   });
 
-  document.getElementById("food-search-clear-btn").onclick = () => {
-    document.getElementById("food-search-input").value = "";
-    document.getElementById("search-results-list").innerHTML = "";
-  };
+  document.getElementById("product-modal-close").addEventListener("click", () => {
+    document.getElementById("product-modal").classList.remove("active");
+  });
+  document.getElementById("modal-close-action").addEventListener("click", () => {
+    document.getElementById("product-modal").classList.remove("active");
+  });
 
-  // Direct manual code lookup overrides
+  // Combined search bindings
+  const searchInput = document.getElementById("food-search-input");
+  const searchBtn = document.getElementById("search-btn");
+  searchBtn.addEventListener("click", () => executeProductSearch(searchInput.value));
+  searchInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") executeProductSearch(searchInput.value);
+  });
+
+  document.querySelectorAll(".suggestions-chips .chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      const q = chip.getAttribute("data-search");
+      searchInput.value = q;
+      executeProductSearch(q);
+    });
+  });
+
+  // Manual EAN search audit
   document.getElementById("manual-barcode-btn").addEventListener("click", () => {
-    const code = document.getElementById("manual-barcode-input").value.trim();
+    const code = document.getElementById("barcode-manual-field").value.trim();
     if (!code) {
-      showToast("Please provide a valid EAN digit string.", "warning");
+      showToast("Please enter barcode digits.", "warning");
       return;
     }
     if (LOCAL_PRODUCTS_DB[code]) {
@@ -1652,7 +2107,7 @@ document.addEventListener("DOMContentLoaded", () => {
     openProductDetailsModal(mockProduct);
   });
 
-  // File Upload processing
+  // File Upload listener
   const fileDropArea = document.getElementById("file-drop-area");
   const browseFileBtn = document.getElementById("browse-file-btn");
   const fileInput = document.getElementById("barcode-file-input");
@@ -1663,16 +2118,4 @@ document.addEventListener("DOMContentLoaded", () => {
       if (e.target.files.length > 0) handleUploadedBarcodeFile(e.target.files[0]);
     };
   }
-
-  if (fileDropArea && fileInput) {
-    fileDropArea.ondragover = (e) => { e.preventDefault(); fileDropArea.style.borderColor = "var(--primary)"; };
-    fileDropArea.ondragleave = () => fileDropArea.style.borderColor = "rgba(45,91,49,0.2)";
-    fileDropArea.ondrop = (e) => {
-      e.preventDefault();
-      fileDropArea.style.borderColor = "rgba(45,91,49,0.2)";
-      if (e.dataTransfer.files.length > 0) handleUploadedBarcodeFile(e.dataTransfer.files[0]);
-    };
-  }
-
-  document.getElementById("user-points-val").textContent = STATE.userPoints;
 });
