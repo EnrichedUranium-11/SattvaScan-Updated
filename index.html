@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Sattva Scan - Packaged Food Barcode Scanner & Healthy Swaps</title>
+  <meta name="description" content="Sattva Scan: Scan packaged goods in India to detect harmful chemicals, palm oil, stabilizers, and colors. Check compatibility with Jain, Veg, Vegan, diabetic, and high BP diets.">
+  
+  <!-- Premium Soothing Fonts (Fraunces & Lora for serif, Outfit for sans-serif) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..800&family=Lora:ital,wght@0,400..700;1,400..700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Libraries via CDN -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://unpkg.com/tesseract.js@5.0.3/dist/tesseract.min.js"></script>
+</head>
+<body>
+
+  <!-- Main App Wrapper -->
+  <div class="app-container">
+    
+    <!-- Top Navigation Bar -->
+    <header class="app-header">
+      <div class="header-logo">
+        <img src="logo.png" alt="Sattva Scan Logo" class="logo-img" id="sattva-logo">
+        <div class="logo-text">
+          <h1>Sattva Scan</h1>
+          <span>Premium Diet Guard</span>
+        </div>
+      </div>
+      
+      <div class="header-actions">
+        <div class="pts-badge" id="user-points-badge" title="Earned by scanning and matching new products">
+          <span class="pts-icon">🪙</span>
+          <span id="user-points-val">250</span> pts
+        </div>
+        <button id="profile-btn" class="icon-btn" aria-label="Open Family Health Settings">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+      
+      <!-- TAB PANELS -->
+      <div class="tab-content">
+        
+        <!-- DASHBOARD TAB -->
+        <section id="tab-dashboard" class="tab-panel active">
+          <!-- Daily Intake Tracker (Glass Card) -->
+          <div class="dashboard-tracker glass-card">
+            <h2 class="card-title">Daily Intake Monitor</h2>
+            <div class="tracker-layout">
+              <!-- Calorie Progress Ring -->
+              <div class="calorie-ring-container">
+                <svg width="130" height="130" viewBox="0 0 150 150" class="progress-ring">
+                  <circle class="ring-bg" cx="75" cy="75" r="60" stroke-width="12" fill="transparent"/>
+                  <circle class="ring-fg" id="calorie-progress-ring" cx="75" cy="75" r="60" stroke-width="12" fill="transparent" stroke-dasharray="377" stroke-dashoffset="377"/>
+                </svg>
+                <div class="ring-text">
+                  <span class="ring-number" id="calories-logged">0</span>
+                  <span class="ring-label">of <span id="calories-goal">2000</span> kcal</span>
+                </div>
+              </div>
+              
+              <!-- Nutrients Progression List -->
+              <div class="nutrients-grid">
+                <div class="nutrient-row">
+                  <div class="nut-label">
+                    <span>Sugar Limit</span>
+                    <span id="sugar-tracker-val">0g / 40g</span>
+                  </div>
+                  <div class="nut-progress-bg">
+                    <div class="nut-progress-fg progress-sugar" id="sugar-progress-bar" style="width: 0%"></div>
+                  </div>
+                </div>
+                
+                <div class="nutrient-row">
+                  <div class="nut-label">
+                    <span>Sodium Limit</span>
+                    <span id="sodium-tracker-val">0mg / 1500mg</span>
+                  </div>
+                  <div class="nut-progress-bg">
+                    <div class="nut-progress-fg progress-sodium" id="sodium-progress-bar" style="width: 0%"></div>
+                  </div>
+                </div>
+                
+                <div class="nutrient-row">
+                  <div class="nut-label">
+                    <span>Net Carbs</span>
+                    <span id="carbs-tracker-val">0g / 220g</span>
+                  </div>
+                  <div class="nut-progress-bg">
+                    <div class="nut-progress-fg progress-carbs" id="carbs-progress-bar" style="width: 0%"></div>
+                  </div>
+                </div>
+
+                <div class="nutrient-row">
+                  <div class="nut-label">
+                    <span>Protein Target</span>
+                    <span id="protein-tracker-val">0g / 60g</span>
+                  </div>
+                  <div class="nut-progress-bg">
+                    <div class="nut-progress-fg progress-protein" id="protein-progress-bar" style="width: 0%"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="tracker-controls">
+              <button class="btn btn-secondary btn-sm" id="reset-daily-tracker">Reset Today's Logs</button>
+            </div>
+          </div>
+
+          <!-- Search Packaged Foods -->
+          <div class="search-section glass-card">
+            <h2 class="card-title">Search Packaged Goods</h2>
+            <div class="search-bar">
+              <input type="text" id="food-search-input" placeholder="Search by name, brand, or barcode digits...">
+              <button class="btn btn-primary" id="search-btn">Search</button>
+            </div>
+            <div class="suggestions-chips">
+              <span>Try:</span>
+              <button class="chip" data-search="Maggi">Maggi</button>
+              <button class="chip" data-search="Kurkure">Kurkure</button>
+              <button class="chip" data-search="Lay's">Lay's Chips</button>
+              <button class="chip" data-search="Amul Butter">Amul</button>
+              <button class="chip" data-search="Tropicana">Tropicana</button>
+              <button class="chip" data-search="Cadbury Silk">Cadbury Silk</button>
+            </div>
+            
+            <!-- Search Results & Inline Crowdsourcing Pioneer Panel -->
+            <div class="search-results" id="search-results-list"></div>
+          </div>
+
+          <!-- Active Household Graph Summary -->
+          <div class="profile-summary-card glass-card">
+            <div class="profile-header-summary">
+              <h3>Active Family Graph (Compatibility Check)</h3>
+              <button class="btn btn-sm btn-outline" id="edit-profile-summary-btn">Manage Household</button>
+            </div>
+            <div class="profile-pill-container" id="active-profile-pills">
+              <!-- Dynamically populated in app.js -->
+            </div>
+          </div>
+
+          <!-- Recent Scans -->
+          <div class="recent-scans-section glass-card">
+            <h2 class="card-title">Recent Scans</h2>
+            <div class="recent-list" id="recent-scans-list">
+              <p class="empty-state">No products scanned yet. Go to the "Scan Code" tab to audit your first item!</p>
+            </div>
+          </div>
+        </section>
+        
+        <!-- SCAN CODE TAB -->
+        <section id="tab-scanner" class="tab-panel">
+          <div class="scanner-split-container">
+            
+            <!-- Live Camera Scanning -->
+            <div class="scanner-camera-panel glass-card">
+              <h2 class="card-title">Real-Time Camera Scan</h2>
+              <p class="card-subtitle">Position the EAN barcode inside the green guides to auto-scan instantly.</p>
+              
+              <div class="camera-scanner-wrapper">
+                <div id="camera-reader-element"></div>
+                <div class="scan-laser-beam"></div>
+                <button class="btn btn-primary btn-sm camera-snap-btn" id="camera-snapshot-btn" title="Force capture frame and parse barcode">📸 Force Snap Frame</button>
+              </div>
+              
+              <div class="scanner-status" id="camera-status-msg">
+                Accessing camera feed...
+              </div>
+              
+              <div class="scanner-manual-input">
+                <label for="barcode-manual-field">Or Enter Barcode Digits Manually:</label>
+                <div class="input-row">
+                  <input type="text" id="barcode-manual-field" placeholder="e.g. 8901058820875">
+                  <button class="btn btn-primary" id="manual-barcode-btn">Audit</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Silent Background Image Upload & Preprocessing -->
+            <div class="scanner-pipeline-panel glass-card">
+              <h2 class="card-title">Upload Package Photos</h2>
+              <p class="card-subtitle">Upload a photo containing a barcode or front cover packaging. Our background engine will process it silently.</p>
+              
+              <div class="file-upload-zone" id="file-drop-area">
+                <svg viewBox="0 0 24 24" width="40" height="40" stroke="var(--primary)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+                <p>Drag or upload barcode / front cover image</p>
+                <input type="file" id="barcode-file-input" accept="image/*" style="display: none;">
+                <button class="btn btn-secondary btn-sm" id="browse-file-btn">Select Image</button>
+              </div>
+
+              <!-- Silent Canvas processing (hidden from UI) -->
+              <div class="pipeline-workbench" id="pipeline-workbench" style="display: none;">
+                <canvas id="pipeline-canvas"></canvas>
+              </div>
+
+              <!-- Background processing status -->
+              <div class="ocr-status-loader" id="cv-background-loader" style="display: none; margin-top: 14px; align-items: center; justify-content: center; gap: 8px;">
+                <div class="spinner"></div>
+                <span id="cv-background-text" style="font-family: var(--font-sans); font-size: 11px; color: var(--text-secondary);">Processing canvas frames silently...</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        
+        <!-- INGREDIENT ANALYZER TAB -->
+        <section id="tab-analyzer" class="tab-panel">
+          <div class="analyzer-container glass-card">
+            <h2 class="card-title">Universal Ingredients Analyzer</h2>
+            <p class="card-subtitle">Paste ingredients text OR drag in a screenshot/photo from Blinkit, Zepto, or Instamart to identify harmful additives instantly.</p>
+            
+            <div class="analyzer-form">
+              <!-- Screenshot / Image Upload Group -->
+              <div class="form-group screenshot-upload-group">
+                <label>Screenshot of Ingredients Label / Blinkit details:</label>
+                <div class="screenshot-upload-box" id="screenshot-drop-area">
+                  <svg viewBox="0 0 24 24" width="36" height="36" stroke="var(--primary)" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <polyline points="21 15 16 10 5 21"/>
+                  </svg>
+                  <p>Drag or upload quick-commerce product details screenshot</p>
+                  <input type="file" id="screenshot-file-input" accept="image/*" style="display: none;">
+                  <button type="button" class="btn btn-secondary btn-sm" id="browse-screenshot-btn">Upload Screenshot</button>
+                </div>
+                
+                <!-- OCR Progress loader -->
+                <div class="ocr-status-loader" id="ocr-loader" style="display: none; align-items: center; justify-content: center; gap: 8px; margin-top: 8px;">
+                  <div class="spinner"></div>
+                  <span id="ocr-status-text" style="font-family: var(--font-sans); font-size: 11px;">Extracting raw ingredient list...</span>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="analyzer-textarea">Ingredients Label Text:</label>
+                <textarea id="analyzer-textarea" rows="6" placeholder="Paste ingredients list here (or let our background OCR engine extract it from your uploaded screenshot)..."></textarea>
+              </div>
+              
+              <div class="form-group">
+                <label for="analyzer-product-name">Product Name (Optional):</label>
+                <input type="text" id="analyzer-product-name" placeholder="e.g. Quick-Commerce Item">
+              </div>
+              <button class="btn btn-primary btn-block" id="analyze-text-btn">Audit Ingredients</button>
+            </div>
+          </div>
+        </section>
+        
+      </div>
+    </main>
+
+    <!-- MOBILE STICKY BOTTOM TAB NAVIGATION -->
+    <nav class="tab-navigation mobile-nav">
+      <button class="tab-btn active" data-tab="tab-dashboard">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="9"/>
+          <rect x="14" y="3" width="7" height="5"/>
+          <rect x="14" y="12" width="7" height="9"/>
+          <rect x="3" y="16" width="7" height="5"/>
+        </svg>
+        <span>Dashboard</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-scanner">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10M8 8h8v8H8z"/>
+        </svg>
+        <span>Scan Code</span>
+      </button>
+      <button class="tab-btn" data-tab="tab-analyzer">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        <span>Analyzer</span>
+      </button>
+    </nav>
+
+    <!-- PRODUCT DETAILS AUDIT MODAL (Renders on successful match) -->
+    <div class="modal-overlay" id="product-modal">
+      <div class="modal-card glass-modal">
+        <button class="modal-close-btn" id="product-modal-close" aria-label="Close modal">&times;</button>
+        
+        <div class="modal-header">
+          <div class="product-badge-row">
+            <span class="badge-country">🇮🇳 Indian Food Standards</span>
+            <span class="badge-fssai" id="fssai-indicator">FSSAI Approved</span>
+          </div>
+          <h2 id="modal-product-name">Product Name</h2>
+          <p id="modal-product-brand" class="product-brand-sub">Brand Name</p>
+        </div>
+
+        <div class="modal-body">
+          
+          <!-- Multigenerational Family Graph Compatibility Grid -->
+          <div class="family-audit-section" style="margin-bottom: 16px; background: rgba(45, 91, 49, 0.04); border: 1px solid var(--border-color); padding: 12px; border-radius: 12px;">
+            <h4 style="font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--primary); display: flex; align-items: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Multigenerational Household Compatibility Graph
+            </h4>
+            <div class="family-grid" id="modal-family-audit-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px;">
+              <!-- JS-generated family members matrix status cards -->
+            </div>
+          </div>
+
+          <div class="modal-split">
+            
+            <!-- Left Panel: General Compatibility & Nutrition -->
+            <div class="modal-left">
+              
+              <!-- Dietary Warning Panel -->
+              <div class="warning-panel" id="modal-dietary-status">
+                <div class="status-title">Dietary Compatibility</div>
+                <div class="status-summary" id="modal-dietary-msg">Checking...</div>
+              </div>
+
+              <!-- AI Natural Language Warning Box -->
+              <div class="warning-panel ai-alerts" id="modal-ai-health-panel" style="display: none; background: rgba(217, 138, 4, 0.07); border: 1px solid rgba(217, 138, 4, 0.2); margin-top: 10px;">
+                <div class="status-title" style="color: var(--warning); display: flex; align-items: center; gap: 6px;">
+                  <span>✨</span> Personalized AI Health Alerts
+                </div>
+                <div class="status-summary" id="modal-ai-health-msg" style="font-size: 11px; line-height: 1.4; color: #7F5100;"></div>
+              </div>
+
+              <!-- Nutri-Score & Calories Info -->
+              <div class="product-quick-stats">
+                <div class="nutri-grade-card" id="nutri-grade-container">
+                  <span class="grade-label">Nutri-Score</span>
+                  <div class="grade-letters">
+                    <span class="grade-a">A</span>
+                    <span class="grade-b">B</span>
+                    <span class="grade-c">C</span>
+                    <span class="grade-d">D</span>
+                    <span class="grade-e">E</span>
+                  </div>
+                </div>
+                
+                <div class="calories-per-serving">
+                  <span class="cal-val" id="modal-product-calories">0</span>
+                  <span class="cal-unit">kcal / serving</span>
+                </div>
+              </div>
+
+              <!-- Daily Limit Nutrient Progress Bars -->
+              <div class="nutrition-impact-card">
+                <h4>Daily Limit Impact (Per Serving)</h4>
+                <div class="impact-metrics" id="modal-impact-metrics">
+                  <!-- JS generated elements -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Panel: Ingredients, Chemicals & Swaps -->
+            <div class="modal-right">
+              
+              <!-- Harmful Substances Detected -->
+              <div class="hazards-card">
+                <h4>Detected Chemicals & Additives of Concern</h4>
+                
+                <!-- Bilingual INS Translation togglers -->
+                <div class="translation-language-selector" style="display: flex; gap: 4px; margin-bottom: 8px; font-family: var(--font-sans); font-size: 10px; align-items: center;">
+                  <span>INS Explainer Language:</span>
+                  <button type="button" class="btn btn-secondary btn-sm lang-toggle-btn active" data-lang="en" style="padding: 2px 6px; font-size: 9px; border-radius: 4px;">English</button>
+                  <button type="button" class="btn btn-secondary btn-sm lang-toggle-btn" data-lang="hi" style="padding: 2px 6px; font-size: 9px; border-radius: 4px;">हिन्दी</button>
+                  <button type="button" class="btn btn-secondary btn-sm lang-toggle-btn" data-lang="ta" style="padding: 2px 6px; font-size: 9px; border-radius: 4px;">தமிழ்</button>
+                </div>
+
+                <div class="hazards-list" id="modal-hazards-list">
+                  <!-- JS generated additive detail cards -->
+                </div>
+              </div>
+
+              <!-- Full Raw Ingredients -->
+              <div class="raw-ingredients-collapsible">
+                <details>
+                  <summary>View Ingredients Label</summary>
+                  <p id="modal-raw-ingredients">Ingredient list loading...</p>
+                </details>
+              </div>
+
+              <!-- Healthier Alternatives Recommendation -->
+              <div class="alternatives-card">
+                <h4>Healthy Swaps Suggested for Tier-1 Cities</h4>
+                <div class="alternatives-list" id="modal-alternatives-list">
+                  <!-- JS generated quick commerce options -->
+                </div>
+              </div>
+              
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="modal-close-action">Back</button>
+          
+          <button class="btn btn-outline" id="modal-whatsapp-share-btn" style="display: flex; gap: 6px; align-items: center; border-color: #25D366; color: #128C7E;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.472 14.382c-.022-.014-.563-.278-.65-.31-.087-.031-.15-.047-.213.047-.063.094-.244.31-.3.375-.056.064-.11.073-.213.021-.103-.052-.435-.16-.829-.512-.307-.274-.514-.614-.575-.717-.062-.103-.007-.159.045-.21.047-.046.103-.121.155-.18.052-.06.07-.1-.01-.19-.078-.09-.65-1.564-.89-2.14-.233-.562-.47-.485-.65-.494-.17-.01-.366-.01-.563-.01-.197 0-.518.074-.79.37-.27.295-1.03.295-1.03 1.006 0 .71.519 1.4 5.92 2.766c.27.068.49.19.658.31a1.86 1.86 0 0 0 .66.126c.307.03.65-.246.743-.37.094-.124.094-.233.065-.278-.032-.046-.118-.11-.212-.124zm-5.452 7.618a8.31 8.31 0 0 1-4.25-1.156l-.304-.18-3.15.826.84-3.072-.2-.314a8.29 8.29 0 0 1-1.272-4.417c0-4.57 3.73-8.29 8.29-8.29 2.22 0 4.3.86 5.86 2.43a8.22 8.22 0 0 1 2.43 5.86c0 4.57-3.73 8.29-8.29 8.29zM12 2C6.48 2 2 6.48 2 12c0 2.17.7 4.19 1.89 5.84L2 22l4.31-1.13C7.91 22.04 9.9 22.7 12 22.7c5.52 0 10-4.48 10-10 0-2.67-1.04-5.18-2.93-7.07A9.9 9.9 0 0 0 12 2z"/></svg>
+            WhatsApp Report
+          </button>
+
+          <button class="btn btn-primary" id="modal-log-consumption-btn">Log as Consumed</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROFILE & FAMILY HEALTH MANAGER MODAL -->
+    <div class="modal-overlay" id="profile-modal">
+      <div class="modal-card profile-setup-modal glass-modal">
+        <button class="modal-close-btn" id="profile-modal-close" aria-label="Close modal">&times;</button>
+        
+        <div class="modal-header">
+          <h2>Family Health Manager</h2>
+          <p>Configure base diets, clinical conditions, and custom AI health alerts for your household.</p>
+        </div>
+
+        <div class="modal-body">
+          <form id="profile-settings-form">
+            
+            <!-- Category: Custom Natural Language Health Input (AI Translation Wedge) -->
+            <div class="form-section">
+              <h3>✨ AI Custom Health Profile (Primary User)</h3>
+              <p class="card-subtitle" style="margin-top:-4px; margin-bottom:8px;">Enter your unique health conditions, vitamins deficiencies, surgeries, or personal requests in natural language.</p>
+              <div class="form-group">
+                <textarea id="ai-health-input" rows="3" placeholder="e.g. I have vitamin D deficiency, want minimal sugar, have high bp, and PCOS..."></textarea>
+              </div>
+            </div>
+
+            <!-- Category: Base Diet (For Primary User) -->
+            <div class="form-section">
+              <h3>1. Primary User Base Diet</h3>
+              <div class="dietary-grid">
+                <label class="pref-card">
+                  <input type="radio" name="base-diet" value="vegetarian" checked>
+                  <div class="pref-card-content">
+                    <span class="dot dot-veg"></span>
+                    <strong>Vegetarian</strong>
+                    <span class="desc">No meat or fish (dairy allowed)</span>
+                  </div>
+                </label>
+                
+                <label class="pref-card">
+                  <input type="radio" name="base-diet" value="jain">
+                  <div class="pref-card-content">
+                    <span class="dot dot-jain"></span>
+                    <strong>Jain Diet</strong>
+                    <span class="desc">No root vegetables (onion, garlic, potato) or meat/eggs</span>
+                  </div>
+                </label>
+
+                <label class="pref-card">
+                  <input type="radio" name="base-diet" value="vegan">
+                  <div class="pref-card-content">
+                    <span class="dot dot-vegan"></span>
+                    <strong>Vegan</strong>
+                    <span class="desc">Plant-based (no dairy, honey, or animal derivatives)</span>
+                  </div>
+                </label>
+
+                <label class="pref-card">
+                  <input type="radio" name="base-diet" value="eggetarian">
+                  <div class="pref-card-content">
+                    <span class="dot dot-egg"></span>
+                    <strong>Eggetarian</strong>
+                    <span class="desc">Vegetarian + eggs allowed</span>
+                  </div>
+                </label>
+
+                <label class="pref-card">
+                  <input type="radio" name="base-diet" value="halal">
+                  <div class="pref-card-content">
+                    <span class="dot dot-halal"></span>
+                    <strong>Halal</strong>
+                    <span class="desc">Permissible ingredients (no alcohol or pork)</span>
+                  </div>
+                </label>
+
+                <label class="pref-card">
+                  <input type="radio" name="base-diet" value="none">
+                  <div class="pref-card-content">
+                    <span class="dot dot-nonveg"></span>
+                    <strong>No Restrictions</strong>
+                    <span class="desc">No base diet filters applied</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Category: Allergies -->
+            <div class="form-section">
+              <h3>2. Primary User Allergies</h3>
+              <div class="allergies-switches">
+                <label class="switch-row">
+                  <div class="switch-label">
+                    <strong>Lactose Intolerance (Dairy Alert)</strong>
+                    <span>Flags milk solids, whey, butter, cream, cheese</span>
+                  </div>
+                  <input type="checkbox" id="allergy-dairy" class="custom-switch">
+                </label>
+
+                <label class="switch-row">
+                  <div class="switch-label">
+                    <strong>Gluten Sensitivity (Wheat Alert)</strong>
+                    <span>Flags maida, wheat flour, barley, semolina</span>
+                  </div>
+                  <input type="checkbox" id="allergy-gluten" class="custom-switch">
+                </label>
+
+                <label class="switch-row">
+                  <div class="switch-label">
+                    <strong>Peanut & Tree Nut Allergy</strong>
+                    <span>Flags peanuts, almonds, cashews, walnuts</span>
+                  </div>
+                  <input type="checkbox" id="allergy-nuts" class="custom-switch">
+                </label>
+
+                <label class="switch-row">
+                  <div class="switch-label">
+                    <strong>Soy Allergy</strong>
+                    <span>Flags soy protein, lecithin, soybean oil</span>
+                  </div>
+                  <input type="checkbox" id="allergy-soy" class="custom-switch">
+                </label>
+              </div>
+            </div>
+
+            <!-- Category: Clinical Goals -->
+            <div class="form-section">
+              <h3>3. Primary User Clinical Targets</h3>
+              <div class="goals-switches">
+                <label class="switch-row">
+                  <div class="switch-label">
+                    <strong>Diabetic-Friendly Mode</strong>
+                    <span>Flags high-GI sugars & stabilizers (maltodextrin).</span>
+                  </div>
+                  <input type="checkbox" id="diet-diabetic" class="custom-switch">
+                </label>
+
+                <label class="switch-row">
+                  <div class="switch-label">
+                    <strong>High BP Friendly (Low Sodium)</strong>
+                    <span>Flags sodium content exceeding FSSAI limits.</span>
+                  </div>
+                  <input type="checkbox" id="diet-highbp" class="custom-switch">
+                </label>
+
+                <label class="switch-row">
+                  <div class="switch-label">
+                    <strong>Keto / Low-Carb Diet</strong>
+                    <span>Checks net carbs and flags added grains/sugars.</span>
+                  </div>
+                  <input type="checkbox" id="diet-keto" class="custom-switch">
+                </label>
+              </div>
+            </div>
+
+            <!-- Household Family Graph Graph Wedge -->
+            <div class="form-section">
+              <h3>4. Household Family Health Graph</h3>
+              <p class="card-subtitle" style="margin-top:-6px; margin-bottom:8px;">Configure profile filters for other family members to perform simultaneous audits on every scan.</p>
+              
+              <div id="family-members-list" class="family-list-container" style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
+                <!-- Dynamically populated in app.js -->
+              </div>
+
+              <!-- Add family member sub-form -->
+              <div class="add-family-form" style="background: rgba(45, 91, 49, 0.04); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px;">
+                <h4 style="font-size:12px; font-weight:700; margin-bottom:6px; color: var(--primary);">Add Family Member</h4>
+                <div class="form-row" style="margin-bottom: 6px; display: flex; gap: 6px;">
+                  <input type="text" id="family-member-name" placeholder="Name (e.g. Dad, Aarav)" style="flex:1; font-size:12px; padding: 6px 10px;">
+                  <select id="family-member-diet" style="flex:1; font-size:12px; padding: 6px 10px; border-radius: 8px; border:1px solid var(--border-color); color: var(--text-primary);">
+                    <option value="none">🍽️ Unrestricted</option>
+                    <option value="vegetarian">🥗 Vegetarian</option>
+                    <option value="jain">📿 Jain Diet</option>
+                    <option value="vegan">🌱 Vegan</option>
+                    <option value="eggetarian">🥚 Eggetarian</option>
+                    <option value="halal">🌙 Halal</option>
+                  </select>
+                </div>
+                
+                <div class="form-row" style="margin-bottom: 8px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; font-family: var(--font-sans); font-size: 11px;">
+                  <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="family-member-diabetic"> Diabetic</label>
+                  <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="family-member-highbp"> High BP</label>
+                  <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="family-member-nuts"> Nut Allergy</label>
+                  <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="family-member-dairy"> Lactose Intol.</label>
+                </div>
+                
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-add-family-member" style="width: 100%;">Add to Family Graph</button>
+              </div>
+            </div>
+
+            <!-- Daily Target Goals (Primary User) -->
+            <div class="form-section">
+              <h3>5. Daily Targets (Primary User)</h3>
+              <div class="targets-form-grid">
+                <div class="form-group">
+                  <label for="goal-calories-input">Calories (kcal):</label>
+                  <input type="number" id="goal-calories-input" value="2000" min="1000" max="6000">
+                </div>
+                <div class="form-group">
+                  <label for="goal-sugar-input">Sugar Limit (g):</label>
+                  <input type="number" id="goal-sugar-input" value="40" min="5" max="150">
+                </div>
+                <div class="form-group">
+                  <label for="goal-sodium-input">Sodium Limit (mg):</label>
+                  <input type="number" id="goal-sodium-input" value="1500" min="500" max="4000">
+                </div>
+              </div>
+            </div>
+
+          </form>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="profile-modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="profile-modal-save">Save Profile Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notification Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+  </div>
+
+  <!-- App Core JS -->
+  <script src="app.js"></script>
+</body>
+</html>
