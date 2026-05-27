@@ -675,6 +675,43 @@ body {
   pointer-events: none;
 }
 
+.scanner-complete-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(30, 63, 32, 0.95);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  z-index: 10;
+  color: #fff;
+  font-family: var(--font-sans);
+}
+
+.complete-icon {
+  font-size: 30px;
+  background: var(--success);
+  color: white;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.scanner-complete-overlay h3 {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-serif);
+  margin-bottom: 4px;
+}
+
 @keyframes laserSweep {
   0% { top: 4%; }
   50% { top: 96%; }
