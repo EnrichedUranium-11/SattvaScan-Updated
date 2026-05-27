@@ -1210,9 +1210,32 @@ function initializeOcrScreenshotLoader() {
 }
 
 // --- 11. HIGH PERFORMANCE REAL-TIME BARCODE DETECTOR LOOP ---
+function showScanCompleteOverlay() {
+  const overlay = document.getElementById("scanner-complete-overlay");
+  const laser = document.querySelector(".scan-laser-beam");
+  const snapBtn = document.getElementById("camera-snapshot-btn");
+  
+  if (overlay) overlay.style.display = "flex";
+  if (laser) laser.style.display = "none";
+  if (snapBtn) snapBtn.style.display = "none";
+}
+
+function hideScanCompleteOverlay() {
+  const overlay = document.getElementById("scanner-complete-overlay");
+  const laser = document.querySelector(".scan-laser-beam");
+  const snapBtn = document.getElementById("camera-snapshot-btn");
+  
+  if (overlay) overlay.style.display = "none";
+  if (laser) laser.style.display = "block";
+  if (snapBtn) snapBtn.style.display = "block";
+}
+
 function initializeCameraScanner() {
   const scannerStatus = document.getElementById("camera-status-msg");
   if (scannerStatus) scannerStatus.textContent = "Accessing camera stream...";
+
+  // Reset overlay when scanner starts
+  hideScanCompleteOverlay();
 
   const formatsToSupport = [
     Html5QrcodeSupportedFormats.EAN_13,
@@ -1225,6 +1248,8 @@ function initializeCameraScanner() {
     const video = document.createElement("video");
     video.autoplay = true;
     video.playsInline = true;
+    video.muted = true;
+    video.setAttribute('muted', '');
     video.style.width = "100%";
     video.style.height = "100%";
     video.style.objectFit = "cover";
@@ -1240,25 +1265,42 @@ function initializeCameraScanner() {
         STATE.cameraActive = true;
         if (scannerStatus) scannerStatus.textContent = "Native camera active. Align barcode.";
 
-        const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] });
+        let detector;
+        try {
+          detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] });
+        } catch (e) {
+          console.warn("Native BarcodeDetector formats initialization failed on Safari:", e);
+          stopCameraScanner();
+          startHtml5QrcodeFallback(formatsToSupport);
+          return;
+        }
         
         // Fast Frame Loop
         const detectFrame = () => {
           if (!STATE.cameraActive) return;
           if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            detector.detect(video)
-              .then(barcodes => {
-                if (barcodes.length > 0) {
-                  showToast("Barcode detected natively!", "success");
+            try {
+              detector.detect(video)
+                .then(barcodes => {
+                  if (barcodes.length > 0) {
+                    showToast("Barcode detected natively!", "success");
+                    stopCameraScanner();
+                    showScanCompleteOverlay();
+                    setupPipelineSuccess(barcodes[0].rawValue);
+                  } else {
+                    STATE.cameraLoopId = requestAnimationFrame(detectFrame);
+                  }
+                })
+                .catch(err => {
+                  console.error("Native BarcodeDetector loop error, falling back:", err);
                   stopCameraScanner();
-                  setupPipelineSuccess(barcodes[0].rawValue);
-                } else {
-                  STATE.cameraLoopId = requestAnimationFrame(detectFrame);
-                }
-              })
-              .catch(() => {
-                STATE.cameraLoopId = requestAnimationFrame(detectFrame);
-              });
+                  startHtml5QrcodeFallback(formatsToSupport);
+                });
+            } catch (err) {
+              console.error("Native BarcodeDetector synchronous loop error, falling back:", err);
+              stopCameraScanner();
+              startHtml5QrcodeFallback(formatsToSupport);
+            }
           } else {
             STATE.cameraLoopId = requestAnimationFrame(detectFrame);
           }
@@ -1270,8 +1312,8 @@ function initializeCameraScanner() {
           triggerForceSnap(video);
         };
       })
-      .catch(() => {
-        // getUserMedia failed, fallback to Html5Qrcode
+      .catch((err) => {
+        console.warn("getUserMedia failed, falling back to Html5Qrcode:", err);
         startHtml5QrcodeFallback(formatsToSupport);
       });
   } else {
@@ -1284,6 +1326,10 @@ function startHtml5QrcodeFallback(formatsToSupport) {
   const scannerStatus = document.getElementById("camera-status-msg");
   if (scannerStatus) scannerStatus.textContent = "Accessing camera (fallback)...";
 
+  // Clear reader element for fallback
+  const readerContainer = document.getElementById("camera-reader-element");
+  if (readerContainer) readerContainer.innerHTML = "";
+
   STATE.scannerInstance = new Html5Qrcode("camera-reader-element");
   STATE.scannerInstance.start(
     { facingMode: "environment" },
@@ -1291,6 +1337,7 @@ function startHtml5QrcodeFallback(formatsToSupport) {
     (decodedText) => {
       showToast("Barcode found!", "success");
       stopCameraScanner();
+      showScanCompleteOverlay();
       setupPipelineSuccess(decodedText);
     },
     () => {}
@@ -1304,7 +1351,8 @@ function startHtml5QrcodeFallback(formatsToSupport) {
         triggerForceSnap(video);
       }
     };
-  }).catch(() => {
+  }).catch((err) => {
+    console.error("Html5Qrcode start error:", err);
     if (scannerStatus) scannerStatus.textContent = "Camera inaccessible. Manual entry allowed.";
   });
 }
@@ -2048,6 +2096,24 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("modal-close-action").addEventListener("click", () => {
     document.getElementById("product-modal").classList.remove("active");
   });
+
+  // Modal Scan Another Button trigger
+  const modalScanAnother = document.getElementById("modal-scan-another-action");
+  if (modalScanAnother) {
+    modalScanAnother.addEventListener("click", () => {
+      document.getElementById("product-modal").classList.remove("active");
+      document.querySelector('.tab-btn[data-tab="tab-scanner"]').click();
+    });
+  }
+
+  // Scanner Tab scan another button trigger
+  const overlayScanAnother = document.getElementById("btn-scan-another");
+  if (overlayScanAnother) {
+    overlayScanAnother.addEventListener("click", () => {
+      hideScanCompleteOverlay();
+      initializeCameraScanner();
+    });
+  }
 
   // Combined search bindings
   const searchInput = document.getElementById("food-search-input");
